@@ -1,0 +1,17 @@
+[project]
+name = "diffusion"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "dotenv>=0.9.9",
+    "hydra-core>=1.3.2",
+    "numpy>=2.4.0",
+    "opencv-python>=4.11.0.86",
+    "pytz>=2025.2",
+    "torch>=2.9.1",
+    "torchvision>=0.24.1",
+    "tqdm>=4.67.1",
+    "wandb>=0.23.1",
+]
