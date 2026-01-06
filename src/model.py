@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class DiffusionUNetConfig:
-    name: str
+    name: str = "ddpm"
     in_c: int = 3
     out_c: int = 3
     init_c: int = 128

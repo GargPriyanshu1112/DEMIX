@@ -6,6 +6,10 @@ from torch.utils.data import ConcatDataset
 
 supported_datasets = ["mnist", "cifar10"]
 
+class Normalization:
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        return x*2 - 1
+
 def load_dataset(ds_config, combine_train_and_val_ds=False):
     assert ds_config.name in supported_datasets, f"Unknown dataset. Supported datasets: {supported_datasets}"
 
@@ -16,11 +20,11 @@ def load_dataset(ds_config, combine_train_and_val_ds=False):
     transform = T.Compose(
         transforms=[
             T.ToImage(), # [C, H, W]
-            T.ToDtype(torch.uint8, scale=True),
+            T.ToDtype(torch.uint8, scale=True), # range: [0, 255]
             T.Resize(ds_config.img_size),
             T.RandomHorizontalFlip(p=0.5 if ds_config.h_flip_aug else 0.0),
-            T.ToDtype(torch.float32, scale=True),
-            T.Lambda(lambda x: x*2 - 1) # scale between [-1., 1.]
+            T.ToDtype(torch.float32, scale=True), # range: [0, 1]
+            Normalization() # range: [-1., 1.]
         ]
     )
 
