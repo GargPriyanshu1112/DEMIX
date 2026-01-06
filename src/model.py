@@ -1,0 +1,216 @@
+import math
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from typing import List
+from dataclasses import dataclass, field
+
+@dataclass
+class DiffusionUNetConfig:
+    name: str
+    in_c: int = 3
+    out_c: int = 3
+    init_c: int = 128
+    chls_mult_factor: List[int] = field(default_factory=lambda: [1, 2, 2, 2])
+    num_blocks: int = 2
+    t_emb_dim: int = 512
+    dropout: float = 0.1
+    attn_resolutions: List[int] = field(default_factory=lambda: [16])
+    num_attn_heads: int = 4
+
+
+def get_timestep_embedding(timesteps, embedding_dim):
+    """
+    Build sinusoidal embeddings (from Transformer paper).
+    """
+    half_dim = embedding_dim // 2
+    emb = math.log(10000) / (half_dim - 1)
+    emb = torch.exp(torch.arange(half_dim, dtype=torch.float32) * -emb)
+    emb = emb.to(device=timesteps.device)
+    emb = timesteps.float()[:, None] * emb[None, :]
+    emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1)
+    if embedding_dim % 2 == 1:  # zero pad
+        emb = torch.nn.functional.pad(emb, (0, 1, 0, 0))
+    return emb
+
+
+class ResidualBlock(nn.Module):
+    def __init__(self, in_c, out_c, t_emb_dim, dropout=0.1):
+        super().__init__()
+        self.t_emb_proj = nn.Linear(t_emb_dim, out_c)
+
+        self.g_norm1 = nn.GroupNorm(8, in_c)
+        self.conv1 = nn.Conv2d(in_c, out_c, kernel_size=3, padding=1)
+
+        self.g_norm2 = nn.GroupNorm(8, out_c)
+        self.conv2 = nn.Conv2d(out_c, out_c, kernel_size=3, padding=1)
+
+        self.dropout = nn.Dropout(dropout)
+
+        if in_c != out_c:
+            self.shortcut = nn.Conv2d(in_c, out_c, 1)
+        else:
+            self.shortcut = nn.Identity()
+
+    def forward(self, x, t_emb_dim):
+        # Time embedding
+        t = F.silu(t_emb_dim)
+        t = self.t_emb_proj(t)[:, :, None, None] # [B, out_c, 1, 1]
+
+        h = self.g_norm1(x)
+        h = F.silu(h)
+        h = self.conv1(h)
+        h = h + t
+        h = self.g_norm2(h)
+        h = F.silu(h)
+        h = self.dropout(h)
+        h = self.conv2(h)
+        h = h + self.shortcut(x)
+        return h
+
+
+class AttentionBlock(nn.Module):
+    def __init__(self, num_c, num_heads=4, attn_dropout=0.0):
+        super().__init__()
+        self.g_norm = nn.GroupNorm(8, num_c)
+        self.mha = nn.MultiheadAttention(
+            embed_dim=num_c, num_heads=num_heads, dropout=attn_dropout, batch_first=True
+        )
+        self.shortcut = nn.Conv2d(num_c, num_c, kernel_size=1)
+
+    def forward(self, x):
+        b, c, h, w = x.shape
+        out = self.g_norm(x)
+        out = out.view(b, c, h*w).permute(0, 2, 1) # [B, HW, C]
+        out, _ = self.mha(query=out, key=out, value=out) # [B, HW, C]
+        out = out.permute(0, 2, 1).view(b, c, h, w) # [B, C, H, W]
+        out = x + self.shortcut(out) # [B, C, H, W]
+        return out
+
+
+class Downsample(nn.Module):
+    def __init__(self, num_c):
+        super().__init__()
+        self.conv = nn.Conv2d(
+            num_c, num_c, kernel_size=3, stride=2, padding=1
+        )
+
+    def forward(self, x):
+        return self.conv(x)
+
+
+class Upsample(nn.Module):
+    def __init__(self, num_c):
+        super().__init__()
+        self.conv = nn.Conv2d(
+            num_c, num_c, kernel_size=3, padding=1
+        )
+
+    def forward(self, x):
+        x = F.interpolate(x, scale_factor=2, mode="nearest")
+        x = self.conv(x)
+        return x
+
+
+class DiffusionUNet(nn.Module):
+    def __init__(self, cfg: DiffusionUNetConfig):
+        super().__init__()
+        self.cfg = cfg
+        self.t_embed = nn.Sequential(
+            nn.Linear(cfg.init_c, cfg.t_emb_dim),
+            nn.SiLU(),
+            nn.Linear(cfg.t_emb_dim, cfg.t_emb_dim)
+        )
+        self.conv_in = nn.Conv2d(cfg.in_c, cfg.init_c, kernel_size=3, padding=1)
+
+        self.up_blocks = nn.ModuleList()
+        self.down_blocks = nn.ModuleList()
+        self.middle_block = nn.ModuleList()
+
+        curr_c = cfg.init_c
+        in_chls = [curr_c]
+        ds = 1
+
+        # Downsampling layers
+        for layer_idx, mult_factor in enumerate(cfg.chls_mult_factor):
+            out_c = cfg.init_c * mult_factor
+            for _ in range(cfg.num_blocks): # no. of [resnet + attention] blocks
+                block = [ResidualBlock(curr_c, out_c, cfg.t_emb_dim, cfg.dropout)]
+                if ds in cfg.attn_resolutions:
+                    block.append(AttentionBlock(out_c, cfg.num_attn_heads))
+                self.down_blocks.append(nn.ModuleList(block))
+                curr_c = out_c
+                in_chls.append(curr_c)
+
+            if layer_idx != len(cfg.chls_mult_factor) - 1: # don't downsample last layer
+                self.down_blocks.append(nn.ModuleList([Downsample(curr_c)]))
+                in_chls.append(curr_c)
+                ds *= 2
+
+        # Middle block
+        self.middle_block.extend([
+            ResidualBlock(curr_c, curr_c, cfg.t_emb_dim, cfg.dropout),
+            AttentionBlock(curr_c, cfg.num_attn_heads),
+            ResidualBlock(curr_c, curr_c, cfg.t_emb_dim, cfg.dropout)
+        ])
+
+        # Upsampling layers
+        for layer_idx, mult_factor in reversed(list(enumerate(cfg.chls_mult_factor))):
+            out_c = cfg.init_c * mult_factor
+            for i in range(cfg.num_blocks + 1): # no. of [resnet + attention] blocks
+                ds_c = in_chls.pop() # downsampling channels
+                block = [ResidualBlock(curr_c + ds_c, out_c, cfg.t_emb_dim, cfg.dropout)]
+                if ds in cfg.attn_resolutions:
+                    block.append(AttentionBlock(out_c))
+                if layer_idx and i == cfg.num_blocks:
+                    block.append(Upsample(out_c))
+                    ds //= 2
+                self.up_blocks.append(nn.ModuleList(block))
+                curr_c = out_c
+
+        # Final layers
+        self.out_norm = nn.GroupNorm(8, curr_c)
+        self.conv_out = nn.Conv2d(curr_c, cfg.out_c, 3, padding=1)
+
+    def forward(self, x, t, y=None):
+        t_emb = self.t_embed(
+            get_timestep_embedding(t, self.cfg.init_c)
+        )
+
+        h = self.conv_in(x)
+        skips = [h]
+
+        for block in self.down_blocks:
+            for layer in block:
+                h = layer(h, t_emb) if isinstance(layer, ResidualBlock) else layer(h)
+            skips.append(h)
+
+        for layer in self.middle_block:
+            h = layer(h, t_emb) if isinstance(layer, ResidualBlock) else layer(h)
+
+        for block in self.up_blocks:
+            h = torch.cat([h, skips.pop()], dim=1)
+            for layer in block:
+                h = layer(h, t_emb) if isinstance(layer, ResidualBlock) else layer(h)
+        return self.conv_out(F.silu(self.out_norm(h)))
+
+
+if __name__ == "__main__":
+    config = DiffusionUNetConfig()
+    model = DiffusionUNet(config)
+
+    # Count parameters
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"Total parameters: {total_params // 1e6:.2f}M")
+    print("Target: ~35.7M parameters")
+
+    # Test forward pass
+    batch_size = 4
+    x = torch.randn(batch_size, 3, 32, 32)
+    t = torch.randint(0, 1000, (batch_size,))
+
+    with torch.no_grad():
+        output = model(x, t)
+
+    print(f"Input shape: {x.shape}")
+    print(f"Output shape: {output.shape}")

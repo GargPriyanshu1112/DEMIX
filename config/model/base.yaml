@@ -1,0 +1,10 @@
+name: base
+in_c: ${dataset.img_chls}
+out_c: ${dataset.img_chls}
+init_c: 128
+chls_mult_factor: [1, 2, 2, 2]
+num_blocks: 2
+attn_resolutions: [16]
+num_attn_heads: 4
+dropout: 0.1
+t_emb_dim: 512
