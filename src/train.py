@@ -117,7 +117,7 @@ def main(config):
             if config.logging.wandb.enable:
                 wandb.log({'epoch': epoch, 'loss': avg_loss, 'epoch_time': epoch_time})
 
-            if (epoch == config.n_epoch) or (epoch%config.vis_every_epoch == 0):
+            if (epoch == config.n_epochs) or (epoch%config.vis_every_epoch == 0):
                 model.eval()
                 with torch.no_grad():
                     lbls = None
@@ -128,7 +128,7 @@ def main(config):
                         wandb.log({"samples": wandb.Image(img)}, step=epoch)
             model.train()
 
-            if (epoch == config.n_epoch) or (epoch%config.save_every_epoch == 0):
+            if (epoch == config.n_epochs) or (epoch%config.save_every_epoch == 0):
                 ckpt_path = log_dir / f"{config.model_name}.pt"
                 torch.save(
                     obj={
