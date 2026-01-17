@@ -11,11 +11,11 @@ class DiffusionUNetConfig:
     in_c: int = 3
     out_c: int = 3
     init_c: int = 128
-    chls_mult_factor: List[int] = field(default_factory=lambda: [1, 2, 2, 2])
-    num_blocks: int = 2
+    chls_mult_factor: List[int] = field(default_factory=lambda: [1, 2, 2, 4])
+    has_attn: List[bool] = field(default_factory=lambda: [False, False, False, True])
+    num_res_blocks: int = 2
     t_emb_dim: int = 512
     dropout: float = 0.1
-    attn_resolutions: List[int] = field(default_factory=lambda: [16])
     num_attn_heads: int = 4
 
 
@@ -129,23 +129,21 @@ class DiffusionUNet(nn.Module):
 
         curr_c = cfg.init_c
         in_chls = [curr_c]
-        ds = 1
 
         # Downsampling layers
-        for layer_idx, mult_factor in enumerate(cfg.chls_mult_factor):
+        for i, mult_factor in enumerate(cfg.chls_mult_factor):
             out_c = cfg.init_c * mult_factor
-            for _ in range(cfg.num_blocks): # no. of [resnet + attention] blocks
+            for _ in range(cfg.num_res_blocks):
                 block = [ResidualBlock(curr_c, out_c, cfg.t_emb_dim, cfg.dropout)]
-                if ds in cfg.attn_resolutions:
+                if cfg.has_attn[i]:
                     block.append(AttentionBlock(out_c, cfg.num_attn_heads))
                 self.down_blocks.append(nn.ModuleList(block))
                 curr_c = out_c
                 in_chls.append(curr_c)
 
-            if layer_idx != len(cfg.chls_mult_factor) - 1: # don't downsample last layer
+            if i != len(cfg.chls_mult_factor) - 1: # don't downsample last layer
                 self.down_blocks.append(nn.ModuleList([Downsample(curr_c)]))
                 in_chls.append(curr_c)
-                ds *= 2
 
         # Middle block
         self.middle_block.extend([
@@ -155,16 +153,15 @@ class DiffusionUNet(nn.Module):
         ])
 
         # Upsampling layers
-        for layer_idx, mult_factor in reversed(list(enumerate(cfg.chls_mult_factor))):
+        for i, mult_factor in reversed(list(enumerate(cfg.chls_mult_factor))):
             out_c = cfg.init_c * mult_factor
-            for i in range(cfg.num_blocks + 1): # no. of [resnet + attention] blocks
-                ds_c = in_chls.pop() # downsampling channels
-                block = [ResidualBlock(curr_c + ds_c, out_c, cfg.t_emb_dim, cfg.dropout)]
-                if ds in cfg.attn_resolutions:
+            for j in range(cfg.num_res_blocks + 1):
+                skip_c = in_chls.pop()
+                block = [ResidualBlock(curr_c + skip_c, out_c, cfg.t_emb_dim, cfg.dropout)]
+                if cfg.has_attn[i]:
                     block.append(AttentionBlock(out_c))
-                if layer_idx and i == cfg.num_blocks:
+                if i and j == cfg.num_res_blocks:
                     block.append(Upsample(out_c))
-                    ds //= 2
                 self.up_blocks.append(nn.ModuleList(block))
                 curr_c = out_c
 
@@ -189,7 +186,10 @@ class DiffusionUNet(nn.Module):
             h = layer(h, t_emb) if isinstance(layer, ResidualBlock) else layer(h)
 
         for block in self.up_blocks:
-            h = torch.cat([h, skips.pop()], dim=1)
+            skip = skips.pop()
+            if h.shape[-2:] != skip.shape[-2:]:
+                h = F.interpolate(h, size=skip.shape[-2:], mode="nearest")
+            h = torch.cat([h, skip], dim=1)
             for layer in block:
                 h = layer(h, t_emb) if isinstance(layer, ResidualBlock) else layer(h)
         return self.conv_out(F.silu(self.out_norm(h)))

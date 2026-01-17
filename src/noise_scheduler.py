@@ -1,42 +1,6 @@
 import tqdm
 import torch
 
-# class LinearNoiseScheduler:
-#     def __init__(self, num_timesteps=1000, beta_start=1e-4, beta_end=0.02):
-#         self.num_timesteps = num_timesteps
-#         self.beta_start = beta_start
-#         self.beta_end = beta_end
-
-#         # Pre-calculate coeffs
-#         self.betas = torch.linspace(beta_start, beta_end, num_timesteps)
-#         self.alphas = 1. - self.betas
-#         self.alpha_bars = torch.cumprod(self.alphas, dim=0)
-#         self.sqrt_alpha_bars = torch.sqrt(self.alpha_bars)
-#         self.sqrt_one_minus_alpha_bars = torch.sqrt(1. - self.alpha_bars)
-
-#     def forward(self, x_0, t):
-#         eps = torch.randn_like(x_0) # [B, C, H, W]
-#         sqrt_alpha_bar_t = self.sqrt_alpha_bars[t].reshape(-1, 1, 1, 1) # [B, 1, 1, 1]
-#         sqrt_one_minus_alpha_bar_t = self.sqrt_one_minus_alpha_bars[t].reshape(-1, 1, 1, 1) # [B, 1, 1, 1]
-#         x_t = sqrt_alpha_bar_t * x_0 + sqrt_one_minus_alpha_bar_t * eps
-#         return x_t, eps
-
-#     def sample_prev_timestep(self, t, x_t, pred_eps_t):
-#         x_0 = (x_t - (self.sqrt_one_minus_alpha_bars[t] * pred_eps_t)) / self.sqrt_alpha_bars[t]
-#         x_0 = torch.clamp(x_0, -1, 1)
-
-#         mean = x_t - ((self.betas[t] * pred_eps_t) / self.sqrt_one_minus_alpha_bars[t])
-#         mean /= torch.sqrt(self.alphas[t])
-
-#         if t == 0:
-#             return mean
-#         else:
-#             variance = (self.betas[t] * (1 - self.alpha_bars[t-1])) / (1 - self.alpha_bars[t])
-#             std = variance ** 0.5
-#             z = torch.randn(x_t.shape).to(x_t.device)
-#             return mean + std*z
-
-
 
 class LinearNoiseScheduler:
     def __init__(self, num_timesteps=1000, beta_start=1e-4, beta_end=0.02):
