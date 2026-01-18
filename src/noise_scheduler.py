@@ -1,15 +1,15 @@
 import torch
 from tqdm import tqdm
 
-class LinearNoiseScheduler(torch.nn.Module):
-    def __init__(self, num_timesteps=1000, beta_start=1e-4, beta_end=0.02):
+class NoiseScheduler(torch.nn.Module):
+    def __init__(self, cfg):
         super().__init__()
-        self.num_timesteps = num_timesteps
-        self.beta_start = beta_start
-        self.beta_end = beta_end
+        self.num_timesteps = cfg.num_timesteps
+        self.beta_start = cfg.beta_start
+        self.beta_end = cfg.beta_end
 
         # Pre-calculate coeffs
-        betas = torch.linspace(beta_start, beta_end, num_timesteps)
+        betas = {"linear": self._linear_schedule(), "cosine": self._cosine_schedule()}[cfg.ddpm.schedule]
         alphas = 1. - betas
         alpha_bars = torch.cumprod(alphas, dim=0)
         sqrt_alpha_bars = torch.sqrt(alpha_bars)
@@ -21,6 +21,19 @@ class LinearNoiseScheduler(torch.nn.Module):
         self.register_buffer("alpha_bars", alpha_bars)
         self.register_buffer("sqrt_alpha_bars", sqrt_alpha_bars)
         self.register_buffer("sqrt_one_minus_alpha_bars", sqrt_one_minus_alpha_bars)
+
+    def _linear_schedule(self):
+        return torch.linspace(self.beta_start, self.beta_end, self.num_timesteps)
+
+    def _cosine_schedule(self):
+        T = self.num_timesteps
+        t = torch.linspace(0, T, T+1)
+        s = 0.008
+        f_ts = torch.square(torch.cos((((t/T) + s) / (1+s)) * torch.pi/2))
+        alpha_bars = f_ts / f_ts[0]
+        betas = 1 - (alpha_bars[1:] / alpha_bars[:-1])
+        betas = betas.clip(self.beta_start, self.beta_end)
+        return betas
 
     def add_noise(self, x_0, t):
         eps = torch.randn_like(x_0) # [B, C, H, W]
@@ -49,12 +62,12 @@ class LinearNoiseScheduler(torch.nn.Module):
 
 
 class DDPM:
-    def __init__(self, img_size, img_chls, device):
+    def __init__(self, cfg, img_size, img_chls, device):
         super().__init__()
         self.img_size = img_size
         self.img_chls = img_chls
         self.device = device
-        self.scheduler = LinearNoiseScheduler().to(device)
+        self.scheduler = NoiseScheduler(cfg).to(device)
 
     def sample_timesteps(self, num_t):
         ts = torch.randint(low=1, high=self.scheduler.num_timesteps, size=(num_t,), device=self.device)
