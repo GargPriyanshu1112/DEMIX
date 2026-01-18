@@ -93,13 +93,13 @@ def main(config):
 
             B, C, H, W = imgs.shape
             t = ddpm.sample_timesteps(B)
-            x_t, eps = ddpm.forward(imgs, t)
+            x_t, noise = ddpm.forward(imgs, t)
 
             optimizer.zero_grad(set_to_none=True)
 
             with amp_ctx:
-                eps_theta = model(x_t, t, lbls)
-                loss = F.mse_loss(eps, eps_theta)
+                pred_noise = model(x_t, t, lbls)
+                loss = F.mse_loss(noise, pred_noise)
 
             loss.backward()
             optimizer.step()
@@ -122,8 +122,9 @@ def main(config):
                 with torch.no_grad():
                     lbls = None
                     imgs, _ = ddpm.reverse(model, config.vis_n_samples, amp_ctx, lbls)
-                    img_path = log_dir / f"{config.model_name}={epoch:05d}.png"
+                    img_path = log_dir / f"{config.model_name}-{epoch:05d}.png"
                     img = save_grid(imgs, img_path, n_row=config.dataset.n_classes).permute(1, 2, 0).numpy()
+                    logger.info(f"Saved sample images generated to {str(img_path)}")
                     if config.logging.wandb.enable and config.logging.wandb.log_imgs:
                         wandb.log({"samples": wandb.Image(img)}, step=epoch)
             model.train()
