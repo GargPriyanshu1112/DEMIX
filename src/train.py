@@ -2,6 +2,7 @@ import os
 import torch
 import hydra
 import wandb
+import random
 import logging
 import torch.nn.functional as F
 from tqdm import tqdm
@@ -14,7 +15,7 @@ from torch.utils.data import DataLoader
 from dataset import load_dataset
 from model import DiffusionUNetConfig, DiffusionUNet
 from noise_scheduler import DDPM
-from utils import get_device, save_grid, get_ist_time_now
+from utils import get_device, save_grid, get_ist_time_now, sample_lbls
 
 OmegaConf.register_new_resolver("now_ist", get_ist_time_now)
 
@@ -36,8 +37,11 @@ def main(config):
         pin_memory=config.dataloader.pin_memory
     )
 
-    logger.info("Loading model.")
+    if not config.ddpm.classifier_free_guidance.enable:
+        config.model.n_classes = 0
     model_config = DiffusionUNetConfig(**config.model)
+
+    logger.info("Loading model.")
     if config.init_from == "scratch":
         model = DiffusionUNet(model_config)
         model.to(device)
@@ -49,6 +53,7 @@ def main(config):
         model = torch.compile(model)
 
     ddpm = DDPM(
+        config,
         img_size=config.dataset.img_size,
         img_chls=config.dataset.img_chls,
         device=device
@@ -81,6 +86,7 @@ def main(config):
         wandb.define_metric("epoch_time", step_metric="epoch")
 
     model.train()
+    p_keep = 1. - config.ddpm.classifier_free_guidance.p_drop # prob at which labels are retained during cfg enabled training
     for epoch in range(1, config.n_epochs+1):
         logger.info(f"Epoch {epoch}/{config.n_epochs}")
 
@@ -90,6 +96,8 @@ def main(config):
 
         for step, batch in enumerate(progress_bar):
             imgs, lbls = batch[0].to(device), None
+            if config.ddpm.classifier_free_guidance.enable and random.random() < p_keep:
+                lbls = batch[1].to(device)
 
             B, C, H, W = imgs.shape
             t = ddpm.sample_timesteps(B)
@@ -121,6 +129,8 @@ def main(config):
                 model.eval()
                 with torch.no_grad():
                     lbls = None
+                    if config.ddpm.classfier_free_guidance.enable:
+                        lbls = sample_lbls(config.dataset.n_classes, config.vis_n_samples, device)
                     imgs, _ = ddpm.reverse(model, config.vis_n_samples, amp_ctx, lbls)
                     img_path = log_dir / f"{config.model_name}-{epoch:05d}.png"
                     img = save_grid(imgs, img_path, n_row=config.dataset.n_classes).permute(1, 2, 0).numpy()

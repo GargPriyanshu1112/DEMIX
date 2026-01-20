@@ -40,4 +40,8 @@ ddpm:
   timesteps: 1000
   beta_start: 1e-4
   beta_end: 0.02
-  schedule: linear
+  schedule: cosine
+  classifier_free_guidance:
+    enable: true
+    scale: 3.0
+    p_drop: 0.2 # prob at which labels are dropped during training a CFG Diffusion Model

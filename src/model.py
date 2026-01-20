@@ -17,6 +17,7 @@ class DiffusionUNetConfig:
     t_emb_dim: int = 512
     dropout: float = 0.1
     num_attn_heads: int = 4
+    n_classes: int = 0 # > 0 will use classifer free guidance
 
 
 def get_timestep_embedding(timesteps, embedding_dim):
@@ -127,6 +128,9 @@ class DiffusionUNet(nn.Module):
         self.down_blocks = nn.ModuleList()
         self.middle_block = nn.ModuleList()
 
+        if cfg.n_classes:
+            self.label_emb = nn.Embedding(cfg.n_classes, cfg.t_emb_dim)
+
         curr_c = cfg.init_c
         in_chls = [curr_c]
 
@@ -173,6 +177,8 @@ class DiffusionUNet(nn.Module):
         t_emb = self.t_embed(
             get_timestep_embedding(t, self.cfg.init_c)
         )
+        if y is not None:
+            t_emb += self.label_emb(y)
 
         h = self.conv_in(x)
         skips = [h]

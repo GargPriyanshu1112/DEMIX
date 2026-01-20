@@ -59,3 +59,6 @@ def get_ist_time_now(fmt="%d-%m-%Y-%H%M%S"):
     ist = pytz.timezone('Asia/Kolkata')
     now_ist = datetime.now(ist)
     return now_ist.strftime(fmt)
+
+def sample_lbls(n_class, n, device="cpu"):
+    return torch.arange(0, n_class, dtype=torch.long, device=device).repeat((n + n_class - 1) // n_class)[:n]

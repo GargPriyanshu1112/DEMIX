@@ -8,3 +8,4 @@ num_res_blocks: 2
 num_attn_heads: 4
 dropout: 0.1
 t_emb_dim: 512
+n_classes: ${dataset.n_classes}

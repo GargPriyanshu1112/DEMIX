@@ -4,12 +4,13 @@ from tqdm import tqdm
 class NoiseScheduler(torch.nn.Module):
     def __init__(self, cfg):
         super().__init__()
-        self.num_timesteps = cfg.num_timesteps
-        self.beta_start = cfg.beta_start
-        self.beta_end = cfg.beta_end
+        self.num_timesteps = cfg.ddpm.timesteps
+        self.beta_start = cfg.ddpm.beta_start
+        self.beta_end = cfg.ddpm.beta_end
+        self.schedule = cfg.ddpm.schedule
 
         # Pre-calculate coeffs
-        betas = {"linear": self._linear_schedule(), "cosine": self._cosine_schedule()}[cfg.ddpm.schedule]
+        betas = {"linear": self._linear_schedule(), "cosine": self._cosine_schedule()}[self.schedule]
         alphas = 1. - betas
         alpha_bars = torch.cumprod(alphas, dim=0)
         sqrt_alpha_bars = torch.sqrt(alpha_bars)
@@ -68,6 +69,8 @@ class DDPM:
         self.img_chls = img_chls
         self.device = device
         self.scheduler = NoiseScheduler(cfg).to(device)
+        self.enable_cfg = cfg.ddpm.classifier_free_guidance.enable
+        self.scale_cfg = cfg.ddpm.classifier_free_guidance.scale
 
     def sample_timesteps(self, num_t):
         ts = torch.randint(low=1, high=self.scheduler.num_timesteps, size=(num_t,), device=self.device)
@@ -79,6 +82,7 @@ class DDPM:
 
     @torch.no_grad()
     def reverse(self, model, n, amp_ctx, lbls=None, debug=False, debug_steps=10):
+        assert lbls is not None if self.enable_cfg else lbls is None
         x = torch.randn((n, self.img_chls, *self.img_size), device=self.device)
 
         debug_steps = min(debug_steps, self.scheduler.num_timesteps)
@@ -92,8 +96,11 @@ class DDPM:
         for i in tqdm(reversed(range(self.scheduler.num_timesteps)), dynamic_ncols=True, desc="sampling", leave=False, total=self.scheduler.num_timesteps):
             t = torch.full((n,), fill_value=i, dtype=torch.long, device=self.device)
             with amp_ctx:
-                pred_eps_t = model(x, t, lbls)
-            x = self.scheduler.sample_prev_timestep(t, x, pred_eps_t)
+                pred_noise = model(x, t, lbls)
+                if self.enable_cfg:
+                    uncond_pred_noise = model(x, t, None)
+                    pred_noise = torch.lerp(uncond_pred_noise, pred_noise, self.scale_cfg)
+            x = self.scheduler.sample_prev_timestep(t, x, pred_noise)
             if debug and (i%debug_stepsize == 0) and (step_idx < debug_steps):
                 x_debug = ((x.clamp(-1., 1.) + 1) * 127.5).to("cpu").to(torch.uint8)
                 debug_ret[step_idx] = x_debug
