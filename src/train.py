@@ -7,6 +7,7 @@ import logging
 import torch.nn.functional as F
 from tqdm import tqdm
 from time import time
+from pathlib import Path
 from omegaconf import OmegaConf
 from dotenv import load_dotenv
 from contextlib import nullcontext
@@ -92,12 +93,12 @@ def main(config):
 
         t0 = time()
         cum_loss = 0.0
-        progress_bar = tqdm(dataloader, dynamic_ncols=True, desc=f"Epoch {epoch}", leave=False)
+        progress_bar = tqdm(dataloader, dynamic_ncols=True, desc=f"Epoch {epoch}", leave=True)
 
         for step, batch in enumerate(progress_bar):
-            imgs, lbls = batch[0].to(device), None
+            imgs, lbls = batch[0].to(device, non_blocking=True), None
             if config.ddpm.classifier_free_guidance.enable and random.random() < p_keep:
-                lbls = batch[1].to(device)
+                lbls = batch[1].to(device, non_blocking=True)
 
             B, C, H, W = imgs.shape
             t = ddpm.sample_timesteps(B)
@@ -115,43 +116,43 @@ def main(config):
 
             progress_bar.set_postfix({'loss': f"{loss.item():.4f}"})
 
-            if device.type == "cuda":
-                torch.cuda.synchronize()
+        if device.type == "cuda":
+            torch.cuda.synchronize()
 
-            epoch_time = time() - t0
-            avg_loss = cum_loss / len(dataloader)
-            logger.info(f"Loss: {avg_loss:.4f} Time: {epoch_time:.2f}s")
+        epoch_time = time() - t0
+        avg_loss = cum_loss / len(dataloader)
+        logger.info(f"Loss: {avg_loss:.4f} Time: {epoch_time:.2f}s")
 
-            if config.logging.wandb.enable:
-                wandb.log({'epoch': epoch, 'loss': avg_loss, 'epoch_time': epoch_time})
+        if config.logging.wandb.enable:
+            wandb.log({'epoch': epoch, 'loss': avg_loss, 'epoch_time': epoch_time})
 
-            if (epoch == config.n_epochs) or (epoch%config.vis_every_epoch == 0):
-                model.eval()
-                with torch.no_grad():
-                    lbls = None
-                    if config.ddpm.classfier_free_guidance.enable:
-                        lbls = sample_lbls(config.dataset.n_classes, config.vis_n_samples, device)
-                    imgs, _ = ddpm.reverse(model, config.vis_n_samples, amp_ctx, lbls)
-                    img_path = log_dir / f"{config.model_name}-{epoch:05d}.png"
-                    img = save_grid(imgs, img_path, n_row=config.dataset.n_classes).permute(1, 2, 0).numpy()
-                    logger.info(f"Saved sample images generated to {str(img_path)}")
-                    if config.logging.wandb.enable and config.logging.wandb.log_imgs:
-                        wandb.log({"samples": wandb.Image(img)}, step=epoch)
-            model.train()
+        if (epoch == config.n_epochs) or (epoch%config.vis_every_epoch == 0):
+            model.eval()
+            with torch.no_grad():
+                lbls = None
+                if config.ddpm.classifier_free_guidance.enable:
+                    lbls = sample_lbls(config.dataset.n_classes, config.vis_n_samples, device)
+                imgs, _ = ddpm.reverse(model, config.vis_n_samples, amp_ctx, lbls)
+                img_path = log_dir / f"{config.model_name}-{epoch:05d}.png"
+                img = save_grid(imgs, img_path, n_row=config.dataset.n_classes).permute(1, 2, 0).numpy()
+                logger.info(f"Saved sample images generated to {str(img_path)}")
+                if config.logging.wandb.enable and config.logging.wandb.log_imgs:
+                    wandb.log({"samples": wandb.Image(img)}, step=epoch)
+        model.train()
 
-            if (epoch == config.n_epochs) or (epoch%config.save_every_epoch == 0):
-                ckpt_path = log_dir / f"{config.model_name}.pt"
-                torch.save(
-                    obj={
-                        "model": model.state_dict(),
-                        "config": config,
-                        "epoch": epoch,
-                        "loss": avg_loss,
-                        "optimizer": optimizer.state_dict()
-                    },
-                    f=ckpt_path
-                )
-                logger.info(f"Saved checkpoint to {str(ckpt_path)}")
+        if (epoch == config.n_epochs) or (epoch%config.save_every_epoch == 0):
+            ckpt_path = log_dir / f"{config.model_name}.pt"
+            torch.save(
+                obj={
+                    "model": model.state_dict(),
+                    "config": config,
+                    "epoch": epoch,
+                    "loss": avg_loss,
+                    "optimizer": optimizer.state_dict()
+                },
+                f=ckpt_path
+            )
+            logger.info(f"Saved checkpoint to {str(ckpt_path)}")
 
 
 if __name__ == "__main__":
