@@ -255,18 +255,22 @@ One good aspect about this term is that it involves two quantities of the same f
 
 At first glance it may look like we are back where we started but that's not the case. Instead of q( x_(t-1) | x_t ), we have additional conditioning on x0: q( x_(t-1) | xt, x0 ). Intuitively this is easier to compute because once you look at the original image, we can have some sense about how to go about denoising the image from one timestep to previous timestep.
 
-We can use Baye's Theorem, p(A,B) = p(A)*p(B|A) to rewrite this quantity.
-
 $$
-q(x_{t-1}|x_t,x_0) = \frac{q(x_0,x_{t-1},x_t)} {q(x_t,x_0)}
+\cancel{a}
 $$
 
+Using the **Conditional Probability Formula, P(A,B) = P(A) • p(B|A)**, we can rewrite this quantity as
+
 $$
-\Rightarrow q(x_{t-1}|x_t,x_0) = \frac{q(x_0,x_{t-1}) \ q(x_{t}|x_0,x_{t-1})} {q(x_t,x_0)}
+q(x_{t-1}|x_t,x_0) = \frac{q(x_0,x_{t-1},x_t)} {q(x_0,x_t)}
 $$
 
 $$
-\Rightarrow q(x_{t-1}|x_t,x_0) = \frac{q(x_0) \ q(x_{t-1}|x_{0}) \ q(x_{t}|x_0,x_{t-1})} {q(x_0) \ q(x_t|x_0)}
+\Rightarrow q(x_{t-1}|x_t,x_0) = \frac{q(x_0,x_{t-1}) \ q(x_{t}|x_0,x_{t-1})} {q(x_0,x_t)}
+$$
+
+$$
+\Rightarrow q(x_{t-1}|x_t,x_0) = \frac{\cancel{q(x_0)} \ q(x_{t-1}|x_0) \ q(x_t|x_0,x_{t-1})} {\cancel{q(x_0)} \ q(x_t|x_0)}
 $$
 
 $$
@@ -274,7 +278,7 @@ $$
 $$
 
 $$
-\Rightarrow q(x_{t-1}|x_t,x_0) = \frac {N(x_t; \sqrt a_{t}x_{t-1}, (1-a_t)I) \ N(x_{t-1}; \sqrt {\overline{\alpha}_{t-1}} x_0, (1 - \overline{\alpha}_{t-1})I)} {N(x_t; \sqrt{\overline{\alpha}_{t}} x_0, (1 - \overline \alpha_{t})I)}
+\Rightarrow q(x_{t-1}|x_t,x_0) = \frac {N(x_t; \sqrt \alpha_{t}x_{t-1}, (1-\alpha_t)I) \ N(x_{t-1}; \sqrt {\overline{\alpha}_{t-1}} x_0, (1 - \overline{\alpha}_{t-1})I)} {N(x_t; \sqrt{\overline{\alpha}_{t}} x_0, (1 - \overline \alpha_{t})I)}
 $$
 
 Note:
@@ -284,47 +288,312 @@ Note:
 Because they are all Gaussians, we can write them in exponential form.
 
 $$
-exp \frac{-1}{2} \left[ \frac{(x_t - \sqrt \alpha_t x_{t-1})^2 }{1-\alpha_t} + \frac{(x_{t-1} - \sqrt{ \overline{\alpha}_{t-1}} x_{0})^2 } {1 - \overline{\alpha}_{t-1}} - \frac{(x_t - \sqrt{ \overline{\alpha}_{t}} x_{0})^2 }{1 - \overline{\alpha}_{t-1}}\right]
+exp \frac{-1}{2} \left[ \frac{(x_t - \sqrt \alpha_t x_{t-1})^2 }{1-\alpha_t} + \frac{(x_{t-1} - \sqrt{ \overline{\alpha}_{t-1}} x_{0})^2 } {1 - \overline{\alpha}_{t-1}} - \frac{(x_t - \sqrt{ \overline{\alpha}_{t}} x_{0})^2 }{1 - \overline{\alpha}_t}\right]
 $$
 
 $$
-exp \frac{-1}{2} \left[ \frac{x_t^2 - 2 \sqrt \alpha_t x_{t-1} x_t + \alpha_t x_{t-1}^2} {1 - \alpha_t} + \frac{x_{t-1}^2 - 2 \sqrt {\overline \alpha_{t-1}} x_0 x_{t-1} + \overline \alpha_{t-1}x_0^2} {1 - \overline \alpha_{t-1}} - \frac{x_t^2 - 2 \sqrt{ \overline \alpha_{t}} x_{0} x_{t} + \alpha_{t} x_0^2 }{1 - \overline \alpha_{t-1}}\right]
+exp \frac{-1}{2} \left[ \frac{x_t^2 - 2 \sqrt \alpha_t x_{t-1} x_t + \alpha_t x_{t-1}^2} {1 - \alpha_t} + \frac{x_{t-1}^2 - 2 \sqrt {\overline \alpha_{t-1}} x_0 x_{t-1} + \overline \alpha_{t-1}x_0^2} {1 - \overline \alpha_{t-1}} - \frac{x_t^2 - 2 \sqrt{ \overline \alpha_{t}} x_{0} x_{t} + \overline\alpha_{t} x_0^2 }{1 - \overline \alpha_t}\right]
 $$
 
 $$
-exp \frac{-1}{2} \left[ ( \ \frac{x_t^2}{1 - \alpha_t} - \frac{2 \sqrt \alpha_t x_{t-1} x_t}{1 - \alpha_t} + \frac{\alpha_t x_{t-1}^2}{1 - \alpha_t} \ ) \ + \ ( \ \frac{x_{t-1}^2}{1 - \overline \alpha_{t-1}} - \frac{2 \sqrt {\overline \alpha_{t-1}} x_0 x_{t-1}}{1 - \overline \alpha_{t-1}} + \frac{\overline \alpha_{t-1}x_0^2}{1 - \overline \alpha_{t-1}} \ ) \  + \ ( \ \frac{x_t^2}{1 - \overline \alpha_{t-1}} - \frac{2 \sqrt{ \overline \alpha_{t}} x_{0} x_{t}}{1 - \overline \alpha_{t-1}} + \frac{\alpha_{t} x_0^2 }{1 - \overline \alpha_{t-1}} \ ) \right]
+exp \frac{-1}{2} \left[ ( \ \frac{x_t^2}{1 - \alpha_t} - \frac{2 \sqrt \alpha_t x_{t-1} x_t}{1 - \alpha_t} + \frac{\alpha_t x_{t-1}^2}{1 - \alpha_t} \ ) \ + \ ( \ \frac{x_{t-1}^2}{1 - \overline \alpha_{t-1}} - \frac{2 \sqrt {\overline \alpha_{t-1}} x_0 x_{t-1}}{1 - \overline \alpha_{t-1}} + \frac{\overline \alpha_{t-1}x_0^2}{1 - \overline \alpha_{t-1}} \ ) \  - \ ( \ \frac{x_t^2}{1 - \overline\alpha_t} - \frac{2 \sqrt{ \overline \alpha_{t}} x_{0} x_{t}}{1 - \overline\alpha_t} + \frac{\overline\alpha_{t} x_0^2 }{1 - \overline \alpha_t} \ ) \right]
 $$
 
 $$
-exp \frac{-1}{2} \left[ x^2_{t-1} (\frac{\alpha_t}{1-\alpha_t} + \frac{1}{1-\overline\alpha_{t-1}}) \ - 2x_{t-1} ( \frac{\sqrt\alpha_tx_t}{1-\alpha_t} + \frac{\sqrt{\overline\alpha_{t-1}}x_0}{1-\overline\alpha_{t-1}} ) \ + \ (...) \right]
+exp \frac{-1}{2} \left[ x^2_{t-1} (\frac{\alpha_t}{1-\alpha_t} + \frac{1}{1-\overline\alpha_{t-1}}) \ - 2x_{t-1} ( \frac{\sqrt\alpha_tx_t}{1-\alpha_t} + \frac{\sqrt{\overline\alpha_{t-1}}x_0}{1-\overline\alpha_{t-1}} ) \ + \ (\frac{x_t^2}{1-\alpha_t} + \frac{\overline\alpha_{t-1}x_0^2}{1-\overline\alpha_{t-1}} - \frac{x_t^2}{1-\overline\alpha_t} + \frac{2\sqrt{\overline\alpha_{t}}x_0 x_t}{1-\overline\alpha_t} - \frac{\overline\alpha_t x_0^2 }{1-\overline\alpha_t}) \right]
 $$
 
 $$
-epx\frac{-1}{2} \left[ x^2_{t-1} (\frac{\alpha_t(1-\overline\alpha_{t-1}) + 1-\alpha_t)}{(1-\alpha_t)(1-\overline\alpha_{t-1})}) \ -2x_{t-1}(\frac{\sqrt\alpha_tx_t(1-\overline\alpha_{t-1}) \ + \ (1-\overline\alpha_t)(\sqrt{\overline\alpha_{t-1}}x_0)}{(1-\alpha_t)(1-\overline\alpha_{t-1})}) \ + (...) \right]
+epx\frac{-1}{2} \left[ x^2_{t-1} (\frac{\alpha_t(1-\overline\alpha_{t-1}) + (1-\alpha_t)}{(1-\alpha_t)(1-\overline\alpha_{t-1})}) \ -2x_{t-1}(\frac{\sqrt\alpha_tx_t(1-\overline\alpha_{t-1}) \ + \ (1-\alpha_t)\sqrt{\overline\alpha_{t-1}}x_0}{(1-\alpha_t)(1-\overline\alpha_{t-1})}) \ + (...) \right]
 $$
 
 $$
-epx\frac{-1}{2} \left[ x^2_{t-1} (\frac{1-\alpha_t\overline\alpha_{t-1}}{(1-\alpha_t)(1-\overline\alpha_{t-1})}) \ -2x_{t-1}(\frac{\sqrt\alpha_tx_t - \overline\alpha_{t-1}\sqrt\alpha_tx_t \ + \ \sqrt{\overline\alpha_{t-1}}x_0-\overline\alpha_t\sqrt{\overline\alpha_{t-1}}x_0}{(1-\alpha_t)(1-\overline\alpha_{t-1})}) \ + (...) \right]
+epx\frac{-1}{2} \left[ x^2_{t-1} \frac{1-\overline\alpha_t}{(1-\alpha_t)(1-\overline\alpha_{t-1})} \ -2x_{t-1}\frac{(1-\overline\alpha_{t-1})\sqrt\alpha_tx_t + (1-\alpha_t)\sqrt{\overline\alpha_{t-1}}x_0}{(1-\alpha_t)(1-\overline\alpha_{t-1})} \ + (...) \right]
 $$
 
 $$
-continue \  below
+epx\frac{-1}{2} \left[ \frac{1-\overline\alpha_t}{(1-\alpha_t)(1-\overline\alpha_{t-1})} \{ \ x^2_{t-1} - 2x_{t-1}(\frac{(1-\overline\alpha_{t-1})\sqrt\alpha_tx_t + (1-\alpha_t)\sqrt{\overline\alpha_{t-1}}x_0}{1-\overline\alpha_t}) \ + (...) \ \} \right]
 $$
 
-Dividing the expression inside bracket by,
-
 $$
-\frac{1-\alpha_t\overline\alpha_{t-1}}{(1-\alpha_t)(1-\overline\alpha_{t-1})}
+B = \frac{x_t^2}{1-\alpha_t} + \frac{\overline\alpha_{t-1}x_0^2}{1-\overline\alpha_{t-1}} - \frac{x_t^2}{1-\overline\alpha_t} + \frac{2\sqrt{\overline\alpha_{t}}x_0 x_t}{1-\overline\alpha_t} - \frac{\overline\alpha_t x_0^2 }{1-\overline\alpha_t}
 $$
 
-we get,
-
 $$
-epx\frac{-1}{2} \left[ \frac{1}{\frac{(1-\alpha_t)(1-\overline\alpha_{t-1})}{1-\alpha_t\overline\alpha_{t-1}}} \{ \ x^2_{t-1} - 2x_{t-1}(\frac{\sqrt\alpha_tx_t - \overline\alpha_{t-1}\sqrt\alpha_tx_t \ + \ \sqrt{\overline\alpha_{t-1}}x_0-\overline\alpha_t\sqrt{\overline\alpha_{t-1}}x_0}{(1-\alpha_t)(1-\overline\alpha_{t-1})}) \ + (...) \right]
+AB = \frac{(1-\alpha_t)(1-\overline\alpha_{t-1})}{1-\overline\alpha_t} \ ( \frac{x_t^2}{1-\alpha_t} + \frac{\overline\alpha_{t-1}x_0^2}{1-\overline\alpha_{t-1}} - \frac{x_t^2}{1-\overline\alpha_t} + \frac{2\sqrt{\overline\alpha_{t}}x_0 x_t}{1-\overline\alpha_t} - \frac{\overline\alpha_t x_0^2 }{1-\overline\alpha_t} )
 $$
 
+$$
+AB = x_t^2 \frac{(1-\overline\alpha_{t-1})(\alpha_t-\overline\alpha_t)}{(1-\overline\alpha_t)(1-\overline\alpha_t)} \ + \ x^2_0 \frac{(1-\alpha_t)(\overline\alpha_{t-1} - \overline\alpha_t)}{(1-\overline\alpha_t)(1-\overline\alpha_t)} + \ \frac{2\sqrt{\overline\alpha_t}x_0x_t(1-\alpha_t)(1-\overline\alpha_{t-1})}{(1-\overline\alpha_t)(1-\overline\alpha_t)}
+$$
+
+$$
+AB = x_t^2 \frac{(1-\overline\alpha_{t-1})^2 \ \alpha_t}{(1-\overline\alpha_t)^2} \ + \ x^2_0 \frac{(1-\alpha_t)^2 \ \overline\alpha_{t-1}}{(1-\overline\alpha_t)^2} \ + \frac{2\sqrt{\alpha_t}\sqrt{\overline\alpha_{t-1}}x_0x_t(1-\alpha_t)(1-\overline\alpha_{t-1})}{(1-\overline\alpha_t)^2}
+$$
+
+$$
+AB = \left[ \frac{(1-\overline\alpha_{t-1})\sqrt{\alpha_t}x_t \ + \ (1-\alpha_t)\sqrt{\overline\alpha_{t-1}}x_0}{(1-\overline\alpha_{t})} \right]^2
+$$
+
+$$
+exp\frac{-1}{2} \left[ \frac{1-\overline\alpha_t}{(1-\alpha_t)(1-\overline\alpha_{t-1})} \ \Big\{ \ x_{t-1} - \frac{(1-\overline\alpha_{t-1})\sqrt\alpha_tx_t + (1-\alpha_t)\sqrt{\overline\alpha_{t-1}}x_0}{1-\overline\alpha_t} \ \Big\}^2 \right]
+$$
+
+A **scaler Gaussian pdf** can be written in either of these equivalent ways:
+
+    ***Standard (Mean-Variance) Form**
+
+$$
+\mathcal{N}(x;\mu,\sigma^2) = \frac{1}{\sqrt{2\pi}\sigma}exp\Big(-\frac{(x-\mu)^2}{2\sigma^2}\Big)
+$$
+
+    ***Quadratic (Precision) Form**
+
+$$
+∝ exp\Big(-\frac{1}{2}ax^2 + bx + const \Big) \ \ \ ; a>0
+$$
+
+Grouping the quadratic and linear terms, we get:
+
+$$
+-\frac{1}{2}ax^2+bx \ = \ -\frac{1}{2}\Big( ax^2-2bx \Big) \ = -\frac{1}{2}\Big(a\big( x-\frac{b}{a}\big)^2\Big) + \frac{1}{2}\frac{b^2}{a}
+$$
+
+Since the constant term can be absorbe into normalization, the resulting Gaussian is:
+
+$$
+∝ exp\Big( -\frac{1}{2}a \big( x-\frac{b}{a}\big)^2 \Big)
+$$
+
+Comparing (pattern matching) with standard Gaussian form, we get:
+
+$$
+\sigma^2 = \frac{1}{a}, \ \ \ \mu = \frac{b}{a}
+$$
+
+Using the above, we can rewrite the above exponential equation as:
+
+$$
+\mathcal{N}\Bigg(x_{t-1}; \underbrace{\frac{(1-\overline\alpha_{t-1})\sqrt{\alpha_t}x_t + (1-\alpha_t)\sqrt{\overline\alpha_{t-1}}x_0}{1-\overline\alpha_t}}_{\mu_q(x_t,x_0)}, \underbrace{\frac{(1-\alpha_t)(1-\overline\alpha_{t-1})}{1-\overline\alpha_t}I}_{\boldsymbol\Sigma_q(t)} \Bigg)
+$$
+
+![1768446091599](image/README/1768446091599.jpg)
+
+Coming back to our Reverse Diffusion process, we now have the following:
+
+$$
+\Rightarrow q(x_{t-1}|x_t,x_0) \ \longrightarrow \ \mathcal{N}\Bigg(x_{t-1}; \underbrace{\frac{(1-\overline\alpha_{t-1})\sqrt{\alpha_t}x_t + (1-\alpha_t)\sqrt{\overline\alpha_{t-1}}x_0}{1-\overline\alpha_t}}_{\mu_q(x_t,x_0)}, \underbrace{\frac{(1-\alpha_t)(1-\overline\alpha_{t-1})}{1-\overline\alpha_t}I}_{\boldsymbol\Sigma_q(t)} \Bigg)
+$$
+
+We need to approximate this mean, as it contains **x0** which won't be available during generation. But since we know that are reverse is Gaussian, we can have our approximation also as a Gaussian. All we need to do is to learn the mean and variance.
+
+$$
+p_\theta({x_{t-1},x_t}) \ \longrightarrow \ \mathcal{N} \Big(x_{t-1};\mu_\theta(xt), \boldsymbol\Sigma_\theta(t) \Big)
+$$
+
+The first thing the authors did was to fix the variance exactly same as the ground truth denoising step variance:
+
+$$
+p_\theta({x_{t-1},x_t}) \ \longrightarrow \ \mathcal{N} \Bigg(x_{t-1};\mu_\theta(xt), \frac{(1-\alpha_t)(1-\overline\alpha_{t-1})}{1-\overline\alpha_t}I \Bigg)
+$$
+
+Since we don't have $x_0$, we'll approximate it by $x_\theta$ (approximation of our original image based on what $x_t$ looks like)
+
+Lets start from the definition of KL-divergence.
+
+If $p(x) = N(x;\mu_\theta,\sigma^2I) $ and q$ (x) = N(x;\mu_q,\sigma^2I)$, with the same variance $\sigma^2$, KL-divergence is defined as:
+
+$$
+D_{KL}(p\|q) = E_p \Bigg[ log\frac{p(x)}{q(x)} \Bigg]
+$$
+
+Since $x\in R^d$ \, in standard Multivariate Gaussian form
+
+$$
+p(x)=\frac{1}{(2\pi)^{d/2} \ |\boldsymbol\Sigma_p |^{1/2}}exp\bigg[-\frac{1}{2}(x-\mu_\theta)^T\boldsymbol\Sigma_p^{-1}(x-\mu_\theta)\bigg]
+$$
+
+$$
+q(x)=\frac{1}{(2\pi)^{d/2} \ |\boldsymbol\Sigma_q |^{1/2}}exp\bigg[-\frac{1}{2}(x-\mu_q)^T\boldsymbol\Sigma_q^{-1}(x-\mu_q)\bigg]
+$$
+
+For isotropic covariance (where all dimensions are independent and have the same variance) $\boldsymbol\Sigma=\sigma^2I$, $|\boldsymbol\Sigma|=(\sigma^2)^d$
+
+Taking log on both sides, we get the following:
+
+$$
+ln\big[p(x)\big]=-\frac{d}{2}log\big[\sqrt{2\pi\sigma^2}\ \big] -\frac{1}{2\sigma^2}\big\| x-\mu_\theta \big\|^2
+$$
+
+$$
+ln\big[q(x)\big]=-\frac{d}{2}log\big[\sqrt{2\pi\sigma^2}\ \big] -\frac{1}{2\sigma^2}\big\| x-\mu_q \big\|^2
+$$
+
+Subtracting the logs, we get
+
+$$
+ln\bigg[ \frac{p(x)}{q(x)}\bigg] = -\frac{1}{2\sigma^2}\bigg(\big\|x-\mu_\theta\big\|^2 - \big\|x-\mu_q\big\|^2\bigg)
+$$
+
+Since the expansion of norm is, $\|x-\mu\|^2 = x^Tx-2x^T\mu+\mu^T\mu$
+
+Therefore,
+
+$$
+\big\|x-\mu_\theta\big\|^2 - \big\|x-\mu_q\big\|^2= (x^Tx - 2x^T\mu_\theta + \mu_\theta^T\mu_\theta) - (x^Tx - 2x^T\mu_\theta + \mu_q^T\mu_q) = -2x^T(\mu_\theta-\mu_q) + \|\mu_\theta\|^2 - \|\mu_q\|^2
+$$
+
+Plugging it back into the KL expression, we get:
+
+$$
+ln\bigg[ \frac{p(x)}{q(x)}\bigg] = -\frac{1}{2\sigma^2}\bigg(-2x^T(\mu_\theta-\mu_q) + \|\mu_\theta\|^2 - \|\mu_q\|^2\bigg)
+$$
+
+Taking expectation on both sides, we get:
+
+$$
+D_{KL}(p\|q) = -\frac{1}{2\sigma^2}E_p\bigg[-2x^T(\mu_\theta-\mu_q) + \big(\|\mu_\theta\|^2 - \|\mu_q\|^2\big)\bigg]
+$$
+
+$$
+D_{KL}(p\|q) = \frac{1}{\sigma^2}E_p\bigg[x^T(\mu_\theta-\mu_q)\bigg] - \frac{1}{2\sigma^2}\bigg(\|\mu_\theta\|^2 - \|\mu_q\|^2\bigg)
+$$
+
+Since $x \sim N(\mu_\theta,\sigma^2I) \Rightarrow E_p[x] = \mu_\theta$
+
+Therefore,
+
+$$
+E_p\big[x^T(\mu_\theta-\mu_q)\big] = \mu_\theta^T(\mu_\theta-\mu_q)
+$$
+
+Substituting it back we get,
+
+$$
+D_{KL}(p\|q) = \frac{1}{\sigma^2}\mu_\theta^T(\mu_\theta-\mu_q) - \frac{1}{2\sigma^2}\big(\|\mu_\theta\|^2 - \|\mu_q\|^2\big)
+$$
+
+After simplification, the KL expression becomes
+
+$$
+D_{KL}(p\|q) = \frac{1}{2\sigma^2}\|\mu_\theta-\mu_q\|^2
+$$
+
+$$
+or
+$$
+
+$$
+D_{KL}(p\|q) = \frac{1-\overline\alpha_t}{2(1-\alpha_t)(1-\overline\alpha_{t-1})}\big\|\mu_\theta-\mu_q\big\|^2
+$$
+
+$$
+---
+$$
+
+At sampling time, $x_t$ is known, but $x_0$ is unknown. So we cannot use $\mu_q(x_t, x_0)$ directly. We must replace $x_0$ with something the model can estimate.
+
+[because the true reverse-process mean depends on the unknown $x_0$, and the best we can do is to plug in the model's estimate $\hat{x}_0$. This is not a theorem — it is a  **modeling choice** , and it is the  *only consistent one* .]
+
+From above, true posterior mean:
+
+$$
+\mu_q(x_t, x_0) = \frac{(1-\overline\alpha_{t-1})\sqrt{\alpha_t}x_t + (1-\alpha_t)\sqrt{\overline\alpha_{t-1}}x_0}{1-\overline\alpha_t}
+$$
+
+We know the forward process (closed form) is described as:
+
+$$
+x_t = \overline\alpha_tx_0 + \sqrt{1-\overline\alpha_t}\epsilon, \ \ \epsilon\sim \mathcal{N}(0,I)
+$$
+
+Rearranging the term:
+
+$$
+x_0 = \frac{1}{\sqrt{\overline\alpha_t}}\big( x_t - \sqrt{1-\overline\alpha_t}\epsilon \big)
+$$
+
+The network is trained to predict $\epsilon \approx \epsilon_\theta(x_t, t)$, Therefore, we can estimate clean image as:
+
+$$
+\hat{x}_0 = \frac{1}{\sqrt{\overline\alpha_t}}\big( x_t - \sqrt{1-\overline\alpha_t}\epsilon_\theta(x_t, t) \big)
+$$
+
+Substituting  x_0 with $\hat{x}_0$ in $\mu_q(x_t, x_0)$ we get:
+
+$$
+\mu_q(x_t, \hat{x}_0) = \frac{1}{\sqrt\alpha_t} \bigg( x_t - \frac{1-\alpha_t}{\sqrt{1-\overline\alpha_t}}\epsilon_\theta(x_t, t) \bigg)
+$$
+
+$$
 
 
 $$
-epx\frac{-1}{2} \left[ x^2_{t-1} (\frac{1-\alpha_t\overline\alpha_{t-1}}{(1-\alpha_t)(1-\overline\alpha_{t-1})}) \ -2x_{t-1}(\frac{\sqrt\alpha_tx_t - \overline\alpha_{t-1}\sqrt\alpha_tx_t \ + \ \sqrt{\overline\alpha_{t-1}}x_0-\overline\alpha_t\sqrt{\overline\alpha_{t-1}}x_0}{(1-\alpha_t)(1-\overline\alpha_{t-1})}) \ + (...) \right]
+
+We now make the definition:
+
+[The model mean is defined as the true posterior mean with the unknown clean image x0x_0**x**0 replaced by its estimate x^0\hat{x}_0**x**^**0**, ensuring that the learned reverse process matches the analytical posterior structure while depending only on observable variables.]
+
+$$
+\mu_\theta(x_t, t) \equiv \mu_q(x_t, \hat{x}_0)
+$$
+
+$$
+---
+$$
+
+Subtracting the two means, we get
+
+![1769094160468](image/README/1769094160468.jpg)
+
+![1769094169592](image/README/1769094169592.jpg)
+
+
+$$
+---
+
+$$
+
+
+True Posterior Mean:
+
+$$
+\mu_q(x_t, x_0) = \frac{(1-\overline\alpha_{t-1})\sqrt{\alpha_t}x_t + (1-\alpha_t)\sqrt{\overline\alpha_{t-1}}x_0}{1-\overline\alpha_t}
+$$
+
+Estimated Clean Image:
+
+$$
+\hat{x}_0 = \frac{1}{\sqrt{\overline\alpha_t}}\big( x_t - \sqrt{1-\overline\alpha_t}\epsilon_\theta(x_t, t) \big)
+$$
+
+Substituting  $x_0$ with $\hat{x}_0$ in $\mu_q(x_t, x_0)$ we get:
+
+$$
+\mu_q(x_t, \hat{x}_0) = \frac{(1-\overline\alpha_{t-1})\sqrt{\alpha_t}x_t}{1-\overline\alpha_t} + \frac{(1-\alpha_t)\sqrt{\overline\alpha_{t-1}}}{1-\overline\alpha_t}\frac{1}{\sqrt{\overline\alpha_t}}\big( x_t - \sqrt{1-\overline\alpha_t}\epsilon_\theta(x_t, t) \big)
+$$
+
+Simplifiying:
+
+$$
+\frac{\sqrt{\overline\alpha_{t-1}}}{\sqrt{\overline\alpha_t}} = \frac{\cancel{\sqrt{\overline\alpha_{t-1}}}}{\cancel{\sqrt{\overline\alpha_{t-1}}}.\sqrt{\alpha_t}} = \frac{1}{\sqrt{\alpha_t}}
+$$
+
+Therefore,
+
+$$
+\mu_q(x_t, \hat{x}_0) = \frac{(1-\overline\alpha_{t-1})\sqrt{\alpha_t}x_t}{1-\overline\alpha_t} + \frac{(1-\alpha_t)}{(1-\overline\alpha_t).\sqrt{\alpha_t}}\big( x_t - \sqrt{1-\overline\alpha_t}\epsilon_\theta(x_t, t) \big)
+$$
+
+
+$$
+\mu_q(x_t, \hat{x}_0) = \frac{1}{1-\overline\alpha_t}x_t \Bigg[ (1-\overline\alpha_{t-1})\sqrt{\alpha_t} + \frac{1-\alpha_t}{\sqrt{\alpha_t}} \Bigg] - \frac{(1-\alpha_t)}{(\sqrt{1-\overline\alpha_t}).\sqrt{\alpha_t}}\epsilon_\theta(x_t, t)
+$$
+
+$$
+\mu_q(x_t, \hat{x}_0) = \frac{x_t}{\sqrt{\alpha_t}} - \frac{(1-\alpha_t)}{(\sqrt{1-\overline\alpha_t}).\sqrt{\alpha_t}}\epsilon_\theta(x_t, t)
+$$
+
+$$
+\mu_q(x_t, \hat{x}_0) = \frac{1}{\sqrt{\alpha_t}} \bigg( x_t - \frac{1-\alpha_t}{\sqrt{1-\overline\alpha_t}}\epsilon_\theta(x_t, t)\bigg)
 $$
