@@ -1,5 +1,6 @@
 import torch
 from tqdm import tqdm
+from contextlib import nullcontext
 
 class NoiseScheduler(torch.nn.Module):
     def __init__(self, cfg):
@@ -81,7 +82,7 @@ class DDPM:
         return self.scheduler.add_noise(x_0, t)
 
     @torch.no_grad()
-    def reverse(self, model, n, amp_ctx, lbls=None, debug=False, debug_steps=10):
+    def reverse(self, model, n, amp_ctx=nullcontext(), lbls=None, debug=False, debug_steps=10):
         assert lbls is not None if self.enable_cfg else lbls is None
         x = torch.randn((n, self.img_chls, *self.img_size), device=self.device)
 
