@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader
 from dataset import load_dataset
 from model import DiffusionUNetConfig, DiffusionUNet
 from noise_scheduler import DDPM
-from utils import get_device, save_grid, get_ist_time_now, sample_lbls
+from utils import get_device, create_grid, get_ist_time_now, sample_lbls, torch_compile_ckpt_fix
 
 OmegaConf.register_new_resolver("now_ist", get_ist_time_now)
 
@@ -43,12 +43,22 @@ def main(config):
     model_config = DiffusionUNetConfig(**config.model)
 
     logger.info("Loading model.")
+    start_epoch = 1
     if config.init_from == "scratch":
         model = DiffusionUNet(model_config)
         model.to(device)
     else:
-        # TODO
         ckpt = torch.load(config.init_from, map_location=device, weights_only=False)
+        ckpt_cfg = ckpt['config']
+        model_config = DiffusionUNetConfig(**ckpt_cfg.model)
+        assert config.ddpm.timesteps == ckpt_cfg.ddpm.timesteps, f"Different timesteps: ckpt timesteps {ckpt_cfg.ddpm.timesteps}"
+        assert model_config.n_classes > 0 if config.ddpm.classifier_free_guidance.enable else model_config.n_classes == 0, f"Incompatible model {config.ddpm.classifier_free_guidance.enable=} {model_config.n_classes=}"
+        assert config.dataset.name == ckpt_cfg.dataset.name, f"Different dataset: {ckpt_cfg.dataset.name}"
+        model = DiffusionUNet(model_config)
+        model.to(device)
+        model.load_state_dict(torch_compile_ckpt_fix(ckpt['model']))
+        logger.info(f"Loaded checkpoint from {config.init_from}")
+        start_epoch = ckpt['epoch'] + 1
 
     if config.torch_compile:
         model = torch.compile(model)
@@ -88,7 +98,7 @@ def main(config):
 
     model.train()
     p_keep = 1. - config.ddpm.classifier_free_guidance.p_drop # prob at which labels are retained during cfg enabled training
-    for epoch in range(1, config.n_epochs+1):
+    for epoch in range(start_epoch, config.n_epochs+1):
         logger.info(f"Epoch {epoch}/{config.n_epochs}")
 
         t0 = time()
@@ -134,7 +144,7 @@ def main(config):
                     lbls = sample_lbls(config.dataset.n_classes, config.vis_n_samples, device)
                 imgs, _ = ddpm.reverse(model, config.vis_n_samples, amp_ctx, lbls)
                 img_path = log_dir / f"{config.model_name}-{epoch:05d}.png"
-                img = save_grid(imgs, img_path, n_row=config.dataset.n_classes).permute(1, 2, 0).numpy()
+                img = create_grid(imgs, n_row=config.dataset.n_classes, img_path=img_path).permute(1, 2, 0).numpy()
                 logger.info(f"Saved sample images generated to {str(img_path)}")
                 if config.logging.wandb.enable and config.logging.wandb.log_imgs:
                     wandb.log({"samples": wandb.Image(img)}, step=epoch)

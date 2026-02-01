@@ -1,4 +1,5 @@
 import cv2
+import math
 import pytz
 import torch
 from datetime import datetime
@@ -48,8 +49,9 @@ def generate_fwd_process_vizualization(x_0, ts, noise_scheduler, dst, fps=10):
     print(f"Saved video to '{dst}'")
 
 
-def save_grid(imgs, img_path=None, n_row=10):
+def create_grid(imgs, n_row=0, img_path=None):
     n = imgs.shape[0]
+    n_row = int(math.ceil(math.sqrt(n))) if n_row==0 else n_row
     grid = make_grid(imgs.float(), nrow=n_row, padding=2, normalize=True)
     if img_path:
         save_image(grid, img_path)
@@ -62,3 +64,11 @@ def get_ist_time_now(fmt="%d-%m-%Y-%H%M%S"):
 
 def sample_lbls(n_class, n, device="cpu"):
     return torch.arange(0, n_class, dtype=torch.long, device=device).repeat((n + n_class - 1) // n_class)[:n]
+
+def torch_compile_ckpt_fix(state_dict):
+    # Remove '_orig_mod.' prefix added to state_dict keys when saving from a torch.compile-wrapped model.
+    unwanted_prefix = '_orig_mod.'
+    for k,v in list(state_dict.items()):
+        if k.startswith(unwanted_prefix):
+            state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)
+    return state_dict
