@@ -1,17 +1,28 @@
+# -----------------------
+# Hydra / Config Defaults
+# -----------------------
 defaults:
   - dataset: mnist
   - model: base
   - _self_
-init_from: scratch
-device_type: cpu
 
+model_name: ${model.name}-${dataset.name}
+init_from: scratch
+
+# -----------------------
+# Runtime / System
+# -----------------------
+device_type: auto
+torch_compile: true
+autocast_dtype: bf16
+enable_tf32: true
+
+# -----------------------
+# Training Loop
+# -----------------------
+n_epochs: 500
 batch_size: 256
 
-torch_compile: true
-dataloader:
-  pin_memory: true
-  workers: 4
-  drop_last: true
 optimizer:
   _target_: torch.optim.AdamW
   lr: 2e-4
@@ -19,29 +30,38 @@ optimizer:
   weight_decay: 0.01
   eps: 1e-8
   fused: true
-logging:
-  log_dir: ./logs
-  wandb:
-    enable: false
-    project: ddpm
-    log_imgs: true
-vis_n_samples: 16
-vis_every_epoch: 10
-save_every_epoch: 50
-model_name: ${model.name}-${dataset.name}
 
+# -----------------------
+# Data Loading
+# -----------------------
+dataloader:
+  workers: 4
+  pin_memory: true
+  drop_last: true
 
-
-n_epochs: 500
-autocast_dtype: bf16
-enable_tf32: true
-
+# -----------------------
+# Method Config
+# -----------------------
 ddpm:
   timesteps: 1000
   beta_start: 1e-4
   beta_end: 0.02
   schedule: cosine
   classifier_free_guidance:
-    enable: true
+    enable: false
     scale: 3.0
-    p_drop: 0.2 # prob at which labels are dropped during training a CFG Diffusion Model
+    p_drop: 0.2  # label drop prob during CFG training
+
+# -----------------------
+# Logging / Monitoring
+# -----------------------
+logging:
+  log_dir: ./logs
+  wandb:
+    enable: false
+    project: ddpm
+    log_imgs: true
+
+vis_n_samples: 20
+vis_every_epoch: 10
+save_every_epoch: 50
