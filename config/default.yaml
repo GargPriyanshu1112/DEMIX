@@ -52,6 +52,26 @@ ddpm:
     scale: 3.0
     p_drop: 0.2  # label drop prob during CFG training
 
+moe:
+  enable: false
+  n_experts: 8
+  topk: 2
+  use_noisy_topk: true
+  min_expert_capacity: 4
+  capacity_factor: 3.0
+  bias: false
+  dropout: 0.0
+  placement:
+    downblock:
+      resolutions: []
+      blocks: []
+    middleblock:
+      resolutions: [4]
+      blocks: [0]
+    upblock:
+      resolutions: []
+      blocks: []
+
 # -----------------------
 # Logging / Monitoring
 # -----------------------

@@ -15,6 +15,7 @@ from torch.utils.data import DataLoader
 
 from dataset import load_dataset
 from model import DiffusionUNetConfig, DiffusionUNet
+from moe import MoEConfig
 from noise_scheduler import DDPM
 from utils import get_device, create_grid, get_ist_time_now, sample_lbls, torch_compile_ckpt_fix
 
@@ -41,20 +42,22 @@ def main(config):
     if not config.ddpm.classifier_free_guidance.enable:
         config.model.n_classes = 0
     model_config = DiffusionUNetConfig(**config.model)
+    moe_config = MoEConfig(**config.moe)
 
     logger.info("Loading model.")
     start_epoch = 1
     if config.init_from == "scratch":
-        model = DiffusionUNet(model_config)
+        model = DiffusionUNet(config.dataset.img_size[0], model_config, moe_config)
         model.to(device)
     else:
         ckpt = torch.load(config.init_from, map_location=device, weights_only=False)
         ckpt_cfg = ckpt['config']
         model_config = DiffusionUNetConfig(**ckpt_cfg.model)
+        moe_config = MoEConfig(**ckpt_cfg.moe)
         assert config.ddpm.timesteps == ckpt_cfg.ddpm.timesteps, f"Different timesteps: ckpt timesteps {ckpt_cfg.ddpm.timesteps}"
         assert model_config.n_classes > 0 if config.ddpm.classifier_free_guidance.enable else model_config.n_classes == 0, f"Incompatible model {config.ddpm.classifier_free_guidance.enable=} {model_config.n_classes=}"
         assert config.dataset.name == ckpt_cfg.dataset.name, f"Different dataset: {ckpt_cfg.dataset.name}"
-        model = DiffusionUNet(model_config)
+        model = DiffusionUNet(config.dataset.img_size[0], model_config, moe_config)
         model.to(device)
         model.load_state_dict(torch_compile_ckpt_fix(ckpt['model']))
         logger.info(f"Loaded checkpoint from {config.init_from}")
