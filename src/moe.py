@@ -2,26 +2,44 @@ import math
 import torch
 import torch.nn.functional as F
 from torch import nn
+from typing import List
+from dataclasses import dataclass, field
+
+@dataclass
+class MoEBlockPlacementConfig:
+    resolutions: List[int] = field(default_factory=list)
+    blocks: List[int] = field(default_factory=list)
+
+@dataclass
+class MoEPlacementConfig:
+    downblock: MoEBlockPlacementConfig = field(default_factory=MoEBlockPlacementConfig)
+    middleblock: MoEBlockPlacementConfig = field(default_factory=MoEBlockPlacementConfig)
+    upblock: MoEBlockPlacementConfig = field(default_factory=MoEBlockPlacementConfig)
+
+@dataclass
+class MoEConfig:
+    enable: bool = False
+    n_experts: int = 8
+    topk: int = 2
+    use_noisy_topk: bool = True
+    min_expert_capacity: int = 4
+    capacity_factor: float = 3.0
+    bias: bool = False
+    dropout: float = 0.0
+    placement: MoEPlacementConfig = field(default_factory=MoEPlacementConfig)
+
 
 class Router(nn.Module):
-    def __init__(
-        self,
-        emb_dim,
-        n_experts=8,
-        topk=2,
-        use_noisy_topk=True,
-        min_expert_capacity=4,
-        capacity_factor=1.25
-    ):
+    def __init__(self, d, cfg):
         super().__init__()
-        assert topk >=1 and self.topk <= n_experts
-        self.n_experts = n_experts
-        self.topk = topk
-        self.use_noisy_topk = use_noisy_topk
-        self.min_expert_capacity = min_expert_capacity
-        self.capacity_factor = capacity_factor
-        self.experts_proj = nn.Linear(emb_dim, n_experts, bias=False)
-        self.experts_proj_noisy = nn.Linear(emb_dim, n_experts, bias=False) if use_noisy_topk else None
+        assert cfg.topk >= 1 and cfg.topk <= cfg.n_experts
+        self.n_experts = cfg.n_experts
+        self.topk = cfg.topk
+        self.use_noisy_topk = cfg.use_noisy_topk
+        self.min_expert_capacity = cfg.min_expert_capacity
+        self.capacity_factor = cfg.capacity_factor
+        self.experts_proj = nn.Linear(d, cfg.n_experts, bias=False)
+        self.experts_proj_noisy = nn.Linear(d, cfg.n_experts, bias=False) if cfg.use_noisy_topk else None
 
     def forward(self, x): # x: [B, T, emb_dim]
         batch_num_tokens = x.shape[0] * x.shape[1] # total tokens in the input batch
@@ -83,13 +101,13 @@ class Router(nn.Module):
 
 
 class Experts(nn.Module):
-    def __init__(self, cfg):
+    def __init__(self, d, cfg):
         super().__init__()
         self.bias = cfg.bias
-        self.fc1 = nn.Parameter(torch.empty(cfg.n, cfg.in_dim, cfg.out_dim))
-        self.fc2 = nn.Parameter(torch.empty(cfg.n, cfg.out_dim, cfg.in_dim))
-        self.fc1_bias = nn.Parameter(torch.empty(cfg.n, 1, cfg.out_dim)) if self.bias else None
-        self.fc2_bias = nn.Parameter(torch.empty(cfg.n, 1, cfg.in_dim)) if self.bias else None
+        self.fc1 = nn.Parameter(torch.empty(cfg.n_experts, d, d*4))
+        self.fc2 = nn.Parameter(torch.empty(cfg.n_experts, d*4, d))
+        self.fc1_bias = nn.Parameter(torch.empty(cfg.n_experts, 1, d*4)) if self.bias else None
+        self.fc2_bias = nn.Parameter(torch.empty(cfg.n_experts, 1, d)) if self.bias else None
         self.gelu = nn.GELU()
         self.dropout = nn.Dropout(cfg.dropout)
 
@@ -106,19 +124,22 @@ class Experts(nn.Module):
 
 
 class MOELayer(nn.Module):
-    def __init__(self):
+    def __init__(self, c, cfg):
         super().__init__()
-        self.router = Router()
-        self.experts = Experts()
+        self.router = Router(c, cfg)
+        self.experts = Experts(c, cfg)
 
-    def forward(self, x): # x: [B, T, emb_dim]
+    def forward(self, x):
+        B, C, H, W = x.shape
+        x = x.permute(0, 2, 3, 1).reshape(B, H*W, C)
+
         B, T, emb_dim = x.size()
         batch_num_tokens = B*T # total tokens in the input batch
 
         _, expert_weights, expert_mask = self.router(x)
 
         # Reshape inputs into batches for each expert
-        x = x.view(batch_num_tokens, emb_dim) # [B*T, emb_dim]
+        x = x.reshape(batch_num_tokens, emb_dim) # [B*T, emb_dim]
         expert_mask = expert_mask.permute(1, 2, 0).type_as(x) # [n_experts, expert_capacity, B*T]
         x = expert_mask @ x # [n_experts, expert_capacity, emb_dim]
 
@@ -128,5 +149,5 @@ class MOELayer(nn.Module):
         expert_weights = expert_weights.view(batch_num_tokens, -1) # [B*T, n_experts*expert_capacity]
         outputs = expert_weights @ outputs # [B*T, emb_dim]
 
-        outputs = outputs.view(B, T, emb_dim)
+        outputs = outputs.reshape(B, C, H, W)
         return outputs

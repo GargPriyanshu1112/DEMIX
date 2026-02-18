@@ -5,6 +5,8 @@ import torch.nn.functional as F
 from typing import List
 from dataclasses import dataclass, field
 
+from moe import MoEConfig, MOELayer
+
 @dataclass
 class DiffusionUNetConfig:
     name: str = "ddpm"
@@ -36,7 +38,7 @@ def get_timestep_embedding(timesteps, embedding_dim):
 
 
 class ResidualBlock(nn.Module):
-    def __init__(self, in_c, out_c, t_emb_dim, dropout=0.1):
+    def __init__(self, in_c, out_c, t_emb_dim, dropout=0.1, use_moe=False, moe_cfg=None):
         super().__init__()
         self.t_emb_proj = nn.Linear(t_emb_dim, out_c)
 
@@ -47,6 +49,7 @@ class ResidualBlock(nn.Module):
         self.conv2 = nn.Conv2d(out_c, out_c, kernel_size=3, padding=1)
 
         self.dropout = nn.Dropout(dropout)
+        self.moe_layer = MOELayer(out_c, moe_cfg) if use_moe else nn.Identity()
 
         if in_c != out_c:
             self.shortcut = nn.Conv2d(in_c, out_c, 1)
@@ -62,6 +65,7 @@ class ResidualBlock(nn.Module):
         h = F.silu(h)
         h = self.conv1(h)
         h = h + t
+        h = self.moe_layer(h)
         h = self.g_norm2(h)
         h = F.silu(h)
         h = self.dropout(h)
@@ -70,6 +74,7 @@ class ResidualBlock(nn.Module):
         return h
 
 
+# For global 'spatial-mixing' across feature-map positions.
 class AttentionBlock(nn.Module):
     def __init__(self, num_c, num_heads=4, attn_dropout=0.0):
         super().__init__()
@@ -114,9 +119,10 @@ class Upsample(nn.Module):
 
 
 class DiffusionUNet(nn.Module):
-    def __init__(self, cfg: DiffusionUNetConfig):
+    def __init__(self, img_size: int, cfg: DiffusionUNetConfig, moe_cfg: MoEConfig):
         super().__init__()
         self.cfg = cfg
+        self.moe_cfg = moe_cfg
         self.t_embed = nn.Sequential(
             nn.Linear(cfg.init_c, cfg.t_emb_dim),
             nn.SiLU(),
@@ -131,14 +137,15 @@ class DiffusionUNet(nn.Module):
         if cfg.n_classes:
             self.label_emb = nn.Embedding(cfg.n_classes, cfg.t_emb_dim)
 
-        curr_c = cfg.init_c
+        curr_res, curr_c = img_size, cfg.init_c
         in_chls = [curr_c]
 
         # Downsampling layers
         for i, mult_factor in enumerate(cfg.chls_mult_factor):
             out_c = cfg.init_c * mult_factor
-            for _ in range(cfg.num_res_blocks):
-                block = [ResidualBlock(curr_c, out_c, cfg.t_emb_dim, cfg.dropout)]
+            for block_idx in range(cfg.num_res_blocks):
+                use_moe = self.use_moe("downblock", curr_res, block_idx)
+                block = [ResidualBlock(curr_c, out_c, cfg.t_emb_dim, cfg.dropout, use_moe, moe_cfg)]
                 if cfg.has_attn[i]:
                     block.append(AttentionBlock(out_c, cfg.num_attn_heads))
                 self.down_blocks.append(nn.ModuleList(block))
@@ -148,10 +155,11 @@ class DiffusionUNet(nn.Module):
             if i != len(cfg.chls_mult_factor) - 1: # don't downsample last layer
                 self.down_blocks.append(nn.ModuleList([Downsample(curr_c)]))
                 in_chls.append(curr_c)
+                curr_res //= 2
 
         # Middle block
         self.middle_block.extend([
-            ResidualBlock(curr_c, curr_c, cfg.t_emb_dim, cfg.dropout),
+            ResidualBlock(curr_c, curr_c, cfg.t_emb_dim, cfg.dropout, True, moe_cfg),
             AttentionBlock(curr_c, cfg.num_attn_heads),
             ResidualBlock(curr_c, curr_c, cfg.t_emb_dim, cfg.dropout)
         ])
@@ -159,13 +167,15 @@ class DiffusionUNet(nn.Module):
         # Upsampling layers
         for i, mult_factor in reversed(list(enumerate(cfg.chls_mult_factor))):
             out_c = cfg.init_c * mult_factor
-            for j in range(cfg.num_res_blocks + 1):
+            for block_idx in range(cfg.num_res_blocks + 1):
                 skip_c = in_chls.pop()
-                block = [ResidualBlock(curr_c + skip_c, out_c, cfg.t_emb_dim, cfg.dropout)]
+                use_moe = self.use_moe("upblock", curr_res, block_idx)
+                block = [ResidualBlock(curr_c + skip_c, out_c, cfg.t_emb_dim, cfg.dropout, use_moe, moe_cfg)]
                 if cfg.has_attn[i]:
                     block.append(AttentionBlock(out_c))
-                if i and j == cfg.num_res_blocks:
+                if i and block_idx == cfg.num_res_blocks:
                     block.append(Upsample(out_c))
+                    curr_res *= 2
                 self.up_blocks.append(nn.ModuleList(block))
                 curr_c = out_c
 
@@ -199,6 +209,13 @@ class DiffusionUNet(nn.Module):
             for layer in block:
                 h = layer(h, t_emb) if isinstance(layer, ResidualBlock) else layer(h)
         return self.conv_out(F.silu(self.out_norm(h)))
+
+    def use_moe(self, block_type, resolution, block_idx):
+        if self.moe_cfg.enable:
+            block_cfg = getattr(self.moe_cfg.placement, block_type)
+            if (resolution in block_cfg.resolutions) and (block_idx in block_cfg.blocks):
+                return True
+        return False
 
 
 if __name__ == "__main__":
