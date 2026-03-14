@@ -35,7 +35,7 @@ def sample(ckpt_path, steps=-1, n=20, save_path=None):
     )
     imgs, _ = ddpm.reverse(model, n, lbls=lbls)
 
-    grid = create_grid(imgs, n_row=n_class, img_path=save_path).to("cpu").permute(1, 2, 0).numpy()
+    grid = create_grid(imgs, n_row=n_class).to("cpu").permute(1, 2, 0).numpy()
     plt.figure(facecolor='black')
     plt.imshow(grid)
     plt.axis("off")
@@ -44,8 +44,10 @@ def sample(ckpt_path, steps=-1, n=20, save_path=None):
     if is_classifier_free_guidance_enabled:
         title += " with CFG"
     plt.title(title, color='white')
+    if save_path.exists:
+        plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
     plt.show()
 
 
 if __name__ == "__main__":
-    sample(r"D:/Diffusion/models/base-mnist.pt", n=1, save_path=Path("./test.png"))
+    sample(r"./models/cifar10_ddpm_600epochs.pt", steps=1000, n=100, save_path=Path("./outputs.png"))

@@ -49,12 +49,10 @@ def generate_fwd_process_vizualization(x_0, ts, noise_scheduler, dst, fps=10):
     print(f"Saved video to '{dst}'")
 
 
-def create_grid(imgs, n_row=0, img_path=None):
+def create_grid(imgs, n_row=0):
     n = imgs.shape[0]
     n_row = int(math.ceil(math.sqrt(n))) if n_row==0 else n_row
     grid = make_grid(imgs.float(), nrow=n_row, padding=2, normalize=True)
-    if img_path:
-        save_image(grid, img_path)
     return grid
 
 def get_ist_time_now(fmt="%d-%m-%Y-%H%M%S"):
