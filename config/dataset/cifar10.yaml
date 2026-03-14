@@ -1,5 +1,5 @@
 name: "cifar10"
-img_size: [28, 28]
+img_size: [32, 32]
 img_chls: 3
 h_flip_aug: true
 n_classes: 10
