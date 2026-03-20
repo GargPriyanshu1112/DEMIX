@@ -1,0 +1,26 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+redundant/
+latest.docx
+*.ipynb
+README.md
+
+.env
+dataset-cache/
+outputs/
+data/
+DDPM.pdf
+forward_process.mp4
+image/
+moe/
+models/
+ddpm_loss_func_derivation.md
