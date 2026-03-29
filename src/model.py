@@ -5,7 +5,8 @@ import torch.nn.functional as F
 from typing import List
 from dataclasses import dataclass, field
 
-from moe import MoEConfig, MOELayer
+from utils import MoEStats, Outputs
+from moe import MoEConfig, IdentityMoELayer, MoELayer
 
 @dataclass
 class DiffusionUNetConfig:
@@ -49,29 +50,29 @@ class ResidualBlock(nn.Module):
         self.conv2 = nn.Conv2d(out_c, out_c, kernel_size=3, padding=1)
 
         self.dropout = nn.Dropout(dropout)
-        self.moe_layer = MOELayer(out_c, moe_cfg) if use_moe else nn.Identity()
+        self.moe_layer = MoELayer(out_c, moe_cfg) if use_moe else IdentityMoELayer()
 
         if in_c != out_c:
             self.shortcut = nn.Conv2d(in_c, out_c, 1)
         else:
             self.shortcut = nn.Identity()
 
-    def forward(self, x, t_emb_dim):
+    def forward(self, x, t_emb):
         # Time embedding
-        t = F.silu(t_emb_dim)
+        t = F.silu(t_emb)
         t = self.t_emb_proj(t)[:, :, None, None] # [B, out_c, 1, 1]
 
         h = self.g_norm1(x)
         h = F.silu(h)
         h = self.conv1(h)
         h = h + t
-        h = self.moe_layer(h)
+        h, moe_stats = self.moe_layer(h)
         h = self.g_norm2(h)
         h = F.silu(h)
         h = self.dropout(h)
         h = self.conv2(h)
         h = h + self.shortcut(x)
-        return h
+        return h, moe_stats
 
 
 # For global 'spatial-mixing' across feature-map positions.
@@ -91,7 +92,7 @@ class AttentionBlock(nn.Module):
         out, _ = self.mha(query=out, key=out, value=out) # [B, HW, C]
         out = out.permute(0, 2, 1).view(b, c, h, w) # [B, C, H, W]
         out = x + self.shortcut(out) # [B, C, H, W]
-        return out
+        return out, MoEStats.empty_like(x)
 
 
 class Downsample(nn.Module):
@@ -102,7 +103,7 @@ class Downsample(nn.Module):
         )
 
     def forward(self, x):
-        return self.conv(x)
+        return self.conv(x), MoEStats.empty_like(x)
 
 
 class Upsample(nn.Module):
@@ -114,8 +115,7 @@ class Upsample(nn.Module):
 
     def forward(self, x):
         x = F.interpolate(x, scale_factor=2, mode="nearest")
-        x = self.conv(x)
-        return x
+        return self.conv(x), MoEStats.empty_like(x)
 
 
 class DiffusionUNet(nn.Module):
@@ -159,7 +159,7 @@ class DiffusionUNet(nn.Module):
 
         # Middle block
         self.middle_block.extend([
-            ResidualBlock(curr_c, curr_c, cfg.t_emb_dim, cfg.dropout, True, moe_cfg),
+            ResidualBlock(curr_c, curr_c, cfg.t_emb_dim, cfg.dropout),
             AttentionBlock(curr_c, cfg.num_attn_heads),
             ResidualBlock(curr_c, curr_c, cfg.t_emb_dim, cfg.dropout)
         ])
@@ -184,6 +184,9 @@ class DiffusionUNet(nn.Module):
         self.conv_out = nn.Conv2d(curr_c, cfg.out_c, 3, padding=1)
 
     def forward(self, x, t, y=None):
+        moe_routing_info = []
+        aux_loss, z_loss = x.new_zeros(()), x.new_zeros(())
+
         t_emb = self.t_embed(
             get_timestep_embedding(t, self.cfg.init_c)
         )
@@ -195,11 +198,19 @@ class DiffusionUNet(nn.Module):
 
         for block in self.down_blocks:
             for layer in block:
-                h = layer(h, t_emb) if isinstance(layer, ResidualBlock) else layer(h)
+                h, moe_stats = layer(h, t_emb) if isinstance(layer, ResidualBlock) else layer(h)
+                aux_loss += moe_stats.aux_loss
+                z_loss += moe_stats.z_loss
+                if moe_stats.routing is not None:
+                    moe_routing_info.append(moe_stats.routing)
             skips.append(h)
 
         for layer in self.middle_block:
-            h = layer(h, t_emb) if isinstance(layer, ResidualBlock) else layer(h)
+            h, moe_stats = layer(h, t_emb) if isinstance(layer, ResidualBlock) else layer(h)
+            aux_loss += moe_stats.aux_loss
+            z_loss += moe_stats.z_loss
+            if moe_stats.routing is not None:
+                moe_routing_info.append(moe_stats.routing)
 
         for block in self.up_blocks:
             skip = skips.pop()
@@ -207,8 +218,16 @@ class DiffusionUNet(nn.Module):
                 h = F.interpolate(h, size=skip.shape[-2:], mode="nearest")
             h = torch.cat([h, skip], dim=1)
             for layer in block:
-                h = layer(h, t_emb) if isinstance(layer, ResidualBlock) else layer(h)
-        return self.conv_out(F.silu(self.out_norm(h)))
+                h, moe_stats = layer(h, t_emb) if isinstance(layer, ResidualBlock) else layer(h)
+                aux_loss += moe_stats.aux_loss
+                z_loss += moe_stats.z_loss
+                if moe_stats.routing is not None:
+                    moe_routing_info.append(moe_stats.routing)
+
+        output = self.conv_out(F.silu(self.out_norm(h)))
+        return Outputs(
+            pred_noise=output, aux_loss=aux_loss, z_loss=z_loss, moe_routing_info=moe_routing_info
+        )
 
     def use_moe(self, block_type, resolution, block_idx):
         if self.moe_cfg.enable:
@@ -216,24 +235,3 @@ class DiffusionUNet(nn.Module):
             if (resolution in block_cfg.resolutions) and (block_idx in block_cfg.blocks):
                 return True
         return False
-
-
-if __name__ == "__main__":
-    config = DiffusionUNetConfig()
-    model = DiffusionUNet(config)
-
-    # Count parameters
-    total_params = sum(p.numel() for p in model.parameters())
-    print(f"Total parameters: {total_params // 1e6:.2f}M")
-    print("Target: ~35.7M parameters")
-
-    # Test forward pass
-    batch_size = 4
-    x = torch.randn(batch_size, 3, 32, 32)
-    t = torch.randint(0, 1000, (batch_size,))
-
-    with torch.no_grad():
-        output = model(x, t)
-
-    print(f"Input shape: {x.shape}")
-    print(f"Output shape: {output.shape}")
