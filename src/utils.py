@@ -3,7 +3,34 @@ import math
 import pytz
 import torch
 from datetime import datetime
+from typing import Optional, List
+from dataclasses import dataclass, field
 from torchvision.utils import make_grid, save_image
+
+@dataclass
+class RoutingStats:
+    topk_indices: torch.Tensor
+    expert_probs: torch.Tensor
+    expert_cap_util: torch.Tensor
+    expert_mask: torch.Tensor
+
+@dataclass
+class MoEStats:
+    aux_loss: torch.Tensor
+    z_loss: torch.Tensor
+    routing: Optional[RoutingStats] = None
+
+    @staticmethod
+    def empty_like(x: torch.Tensor):
+        zero = x.new_zeros(())
+        return MoEStats(aux_loss=zero, z_loss=zero, routing=None)
+
+@dataclass
+class Outputs:
+    pred_noise: torch.Tensor
+    aux_loss: torch.Tensor
+    z_loss: torch.Tensor
+    moe_routing_info: List[torch.Tensor] = field(default_factory=list)
 
 def get_device(device_type):
     device_type = device_type.lower()
