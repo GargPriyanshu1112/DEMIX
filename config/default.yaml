@@ -2,7 +2,7 @@
 # Hydra / Config Defaults
 # -----------------------
 defaults:
-  - dataset: mnist
+  - dataset: cifar10
   - model: base
   - _self_
 
@@ -48,14 +48,18 @@ ddpm:
   beta_end: 0.02
   schedule: cosine
   classifier_free_guidance:
-    enable: false
+    enable: true
     scale: 3.0
-    p_drop: 0.2  # label drop prob during CFG training
+    p_drop: 0.1  # label drop prob during CFG training
 
 moe:
-  enable: false
+  enable: true
+  use_aux_loss: true
+  lambda_aux: 0.01
+  use_z_loss: true
+  lambda_z: 0.001
   n_experts: 8
-  topk: 2
+  k: 2
   use_noisy_topk: true
   min_expert_capacity: 4
   capacity_factor: 3.0
@@ -63,11 +67,11 @@ moe:
   dropout: 0.0
   placement:
     downblock:
+      resolutions: [32]
+      blocks: [0]
+    middleblock:
       resolutions: []
       blocks: []
-    middleblock:
-      resolutions: [4]
-      blocks: [0]
     upblock:
       resolutions: []
       blocks: []
@@ -78,7 +82,7 @@ moe:
 logging:
   log_dir: ./logs
   wandb:
-    enable: false
+    enable: true
     project: ddpm
     log_imgs: true
 
