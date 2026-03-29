@@ -17,7 +17,16 @@ from dataset import load_dataset
 from model import DiffusionUNetConfig, DiffusionUNet
 from moe import MoEConfig
 from noise_scheduler import DDPM
-from utils import get_device, create_grid, get_ist_time_now, sample_lbls, torch_compile_ckpt_fix
+from utils import (
+    get_device,
+    create_grid,
+    get_ist_time_now,
+    sample_lbls,
+    torch_compile_ckpt_fix,
+    plot_most_used_expert,
+    plot_expert_usage_heatmap,
+    plot_routing_entropy
+)
 
 OmegaConf.register_new_resolver("now_ist", get_ist_time_now)
 
@@ -209,12 +218,29 @@ def main(config):
                 lbls = None
                 if config.ddpm.classifier_free_guidance.enable:
                     lbls = sample_lbls(config.dataset.n_classes, config.vis_n_samples, device)
-                imgs, _ = ddpm.reverse(model, config.vis_n_samples, amp_ctx, lbls)
+                imgs, experts_used_per_t, routing_weights_per_t, _ = ddpm.reverse(model, config.vis_n_samples, amp_ctx, lbls)
                 img_path = log_dir / f"{config.model_name}-{epoch:05d}.png"
                 img = create_grid(imgs, n_row=config.dataset.n_classes, img_path=img_path).permute(1, 2, 0).numpy()
+                most_used_expert_per_t_fig = plot_most_used_expert(
+                    experts_used_per_t,
+                    log_dir / f"{config.model_name}-{epoch:05d}_top1_expert.png"
+                )
+                heatmap_fig = plot_expert_usage_heatmap(
+                    routing_weights_per_t,
+                    log_dir / f"{config.model_name}-{epoch:05d}_heatmap.png"
+                )
+                routing_entropy_fig = plot_routing_entropy(
+                    routing_weights_per_t,
+                    log_dir / f"{config.model_name}-{epoch:05d}_entropy.png"
+                )
                 logger.info(f"Saved sample images generated to {str(img_path)}")
                 if config.logging.wandb.enable and config.logging.wandb.log_imgs:
-                    wandb.log({"samples": wandb.Image(img)}, step=epoch)
+                    wandb.log({
+                        "samples": wandb.Image(img),
+                        "most_used_expert": wandb.Image(most_used_expert_per_t_fig),
+                        "expert_usage_heatmap": wandb.Image(heatmap_fig),
+                        "routing_entropy": wandb.Image(routing_entropy_fig),
+                    }, step=epoch)
         model.train()
 
         if (epoch == config.n_epochs) or (epoch%config.save_every_epoch == 0):
