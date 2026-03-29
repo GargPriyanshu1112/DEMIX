@@ -1,4 +1,6 @@
 import torch
+import numpy as np
+import torch.nn.functional as F
 from tqdm import tqdm
 from contextlib import nullcontext
 
@@ -72,6 +74,8 @@ class DDPM:
         self.scheduler = NoiseScheduler(cfg).to(device)
         self.enable_cfg = cfg.ddpm.classifier_free_guidance.enable
         self.scale_cfg = cfg.ddpm.classifier_free_guidance.scale
+        self.enable_moe = cfg.moe.enable
+        self.n_experts = cfg.moe.n_experts if self.enable_moe else None
 
     def sample_timesteps(self, num_t):
         ts = torch.randint(low=1, high=self.scheduler.num_timesteps, size=(num_t,), device=self.device)
@@ -94,19 +98,47 @@ class DDPM:
             debug_ret = torch.zeros((debug_steps, n, self.img_chls, *self.img_size), dtype=torch.uint8, device="cpu")
 
         step_idx = 0
+        routing_weights_per_t = []
+        experts_used_per_t = []
         for i in tqdm(reversed(range(self.scheduler.num_timesteps)), dynamic_ncols=True, desc="sampling", leave=False, total=self.scheduler.num_timesteps):
             t = torch.full((n,), fill_value=i, dtype=torch.long, device=self.device)
             with amp_ctx:
-                pred_noise = model(x, t, lbls)
+                outputs = model(x, t, lbls)
+                pred_noise = outputs.pred_noise
                 if self.enable_cfg:
-                    uncond_pred_noise = model(x, t, None)
-                    pred_noise = torch.lerp(uncond_pred_noise, pred_noise, self.scale_cfg)
+                    uncond_outputs = model(x, t, None)
+                    uncond_pred_noise = uncond_outputs.pred_noise
+                    pred_noise = torch.lerp(uncond_pred_noise, pred_noise, self.scale_cfg) # (1−s)*ϵ_uncond + s*ϵ_cond​
+
+            if self.enable_moe:
+                routing = outputs.moes_routing_info[0]
+                expert_probs = routing.expert_probs # [B*T, n_experts, expert_capacity], one capacity slot per (token, expert) pair
+
+                topk_indices = routing.topk_indices # [B, T, K]
+                B, T = topk_indices.shape[0],topk_indices.shape[1]
+
+                top1 = topk_indices[:, :, 0] # [B, T]
+                one_hot = F.one_hot(top1, num_classes=self.n_experts) # [B, T, n_experts]
+                one_hot = one_hot.sum(dim=(0, 1)) # [n_experts]
+                experts_used_per_t.append(one_hot)
+
+                token_exp_probs = expert_probs.sum(dim=2) # [B*T, n_experts]
+                token_exp_probs = token_exp_probs.reshape(B, T, self.n_experts) # [B, T, n_experts]
+                routing_weight = token_exp_probs.sum(dim=(0, 1)) # Total routing prob/weight assigned to an expert across all tokens
+                routing_weights_per_t.append(routing_weight)
+
             x = self.scheduler.sample_prev_timestep(t, x, pred_noise)
             if debug and (i%debug_stepsize == 0) and (step_idx < debug_steps):
                 x_debug = ((x.clamp(-1., 1.) + 1) * 127.5).to("cpu").to(torch.uint8)
                 debug_ret[step_idx] = x_debug
                 step_idx += 1
 
+        if self.enable_moe:
+            routing_weights_per_t = torch.stack(routing_weights_per_t, dim=0).detach().cpu().numpy() # [num_timesteps, n_experts]
+            experts_used_per_t = torch.stack(experts_used_per_t, dim=0).detach().cpu().numpy() # [num_timesteps, n_experts]
+        else:
+            routing_weights_per_t, experts_used_per_t = [], []
+
         x = x.clamp(-1., 1.)
         x = ((x + 1) * 127.5).to("cpu").to(torch.uint8)
-        return x, debug_ret
+        return x, experts_used_per_t, routing_weights_per_t, debug_ret
