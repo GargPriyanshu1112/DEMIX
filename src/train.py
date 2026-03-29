@@ -104,6 +104,10 @@ def main(config):
     for epoch in range(start_epoch, config.n_epochs+1):
         logger.info(f"Epoch {epoch}/{config.n_epochs}")
 
+        epoch_router_norm = 0.0
+        epoch_expert_norm = 0.0
+        epoch_total_norm  = 0.0
+
         t0 = time()
         cum_loss = 0.0
         progress_bar = tqdm(dataloader, dynamic_ncols=True, desc=f"Epoch {epoch}", leave=True)
@@ -120,24 +124,84 @@ def main(config):
             optimizer.zero_grad(set_to_none=True)
 
             with amp_ctx:
-                pred_noise = model(x_t, t, lbls)
-                loss = F.mse_loss(noise, pred_noise)
+                outputs = model(x_t, t, lbls)
+                mse_term = F.mse_loss(outputs.pred_noise, noise)
+                aux_term = moe_config.lambda_aux * outputs.aux_loss
+                z_term   = moe_config.lambda_z * outputs.z_loss
+                total_loss = mse_term + aux_term + z_term
 
-            loss.backward()
+            total_loss.backward()
+
+            if moe_config.enable:
+                named_params = list(model.named_parameters())
+                residual_scale = [p for n, p in named_params if 'residual_scale' in n and p.grad is not None]
+                router_params  = [p for n, p in named_params if 'experts_proj' in n and p.grad is not None]
+                expert_params  = [p for n, p in named_params if ('fc1' in n or 'fc2' in n) and p.grad is not None]
+
+                router_norm = torch.nn.utils.get_total_norm(router_params)
+                expert_norm = torch.nn.utils.get_total_norm(expert_params)
+
+                epoch_router_norm += router_norm.item()
+                epoch_expert_norm += expert_norm.item()
+
+            total_norm  = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            epoch_total_norm += total_norm.item()
+
             optimizer.step()
-            cum_loss += loss.item()
+            cum_loss += total_loss.item()
 
-            progress_bar.set_postfix({'loss': f"{loss.item():.4f}"})
+            postfix = {
+                'mse': f"{mse_term.item():.4f}",
+                'scaled_aux': f"{aux_term.item():.4f}",
+                'scaled_z': f"{z_term.item():.4f}",
+                'total_norm': f"{total_norm.item():.4f}",
+            }
+            if moe_config.enable:
+                postfix['router_norm'] = f"{router_norm:.4f}"
+                postfix['expert_norm'] = f"{expert_norm:.4f}"
+                postfix['scale'] = f"{residual_scale[0].item():.4f}" if residual_scale else "N/A"
+            progress_bar.set_postfix(postfix)
 
         if device.type == "cuda":
             torch.cuda.synchronize()
 
         epoch_time = time() - t0
+
+        avg_router_norm = epoch_router_norm / len(dataloader)
+        avg_expert_norm = epoch_expert_norm / len(dataloader)
+        avg_total_norm  = epoch_total_norm  / len(dataloader)
         avg_loss = cum_loss / len(dataloader)
-        logger.info(f"Loss: {avg_loss:.4f} Time: {epoch_time:.2f}s")
+
+        if moe_config.enable:
+            logger.info(
+                f"[Epoch {epoch}] "
+                f"Loss={avg_loss:.4f}, "
+                f"Time={epoch_time:.2f}s "
+                f"router_norm={avg_router_norm:.4f}, "
+                f"expert_norm={avg_expert_norm:.4f}, "
+                f"total_norm={avg_total_norm:.4f}"
+            )
+        else:
+            logger.info(
+                f"[Epoch {epoch}] "
+                f"Loss={avg_loss:.4f}, "
+                f"Time={epoch_time:.2f}s "
+                f"total_norm={avg_total_norm:.4f}"
+            )
 
         if config.logging.wandb.enable:
-            wandb.log({'epoch': epoch, 'loss': avg_loss, 'epoch_time': epoch_time})
+            log_dict = {
+            "epoch": epoch,
+            "norms/total": avg_total_norm,
+            "metrics/loss": avg_loss,
+            "metrics/time": epoch_time,
+        }
+        if moe_config.enable:
+            log_dict.update({
+                "norms/router": avg_router_norm,
+                "norms/expert": avg_expert_norm,
+            })
+        wandb.log(log_dict)
 
         if (epoch == config.n_epochs) or (epoch%config.vis_every_epoch == 0):
             model.eval()
