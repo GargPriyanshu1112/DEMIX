@@ -96,8 +96,8 @@ def main(config):
             config=OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
         )
         wandb.define_metric("epoch")
-        wandb.define_metric("loss", step_metric="epoch")
-        wandb.define_metric("epoch_time", step_metric="epoch")
+        wandb.define_metric("metrics/*", step_metric="epoch")
+        wandb.define_metric("norms/*", step_metric="epoch")
 
     model.train()
     p_keep = 1. - config.ddpm.classifier_free_guidance.p_drop # prob at which labels are retained during cfg enabled training

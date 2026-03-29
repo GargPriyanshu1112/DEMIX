@@ -136,8 +136,6 @@ class DDPM:
         if self.enable_moe:
             routing_weights_per_t = torch.stack(routing_weights_per_t, dim=0).detach().cpu().numpy() # [num_timesteps, n_experts]
             experts_used_per_t = torch.stack(experts_used_per_t, dim=0).detach().cpu().numpy() # [num_timesteps, n_experts]
-        else:
-            routing_weights_per_t, experts_used_per_t = [], []
 
         x = x.clamp(-1., 1.)
         x = ((x + 1) * 127.5).to("cpu").to(torch.uint8)
