@@ -111,7 +111,7 @@ class DDPM:
                     pred_noise = torch.lerp(uncond_pred_noise, pred_noise, self.scale_cfg) # (1−s)*ϵ_uncond + s*ϵ_cond​
 
             if self.enable_moe:
-                routing = outputs.moes_routing_info[0]
+                routing = outputs.moe_routing_info[0]
                 expert_probs = routing.expert_probs # [B*T, n_experts, expert_capacity], one capacity slot per (token, expert) pair
 
                 topk_indices = routing.topk_indices # [B, T, K]
