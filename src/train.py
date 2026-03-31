@@ -200,17 +200,17 @@ def main(config):
 
         if config.logging.wandb.enable:
             log_dict = {
-            "epoch": epoch,
-            "norms/total": avg_total_norm,
-            "metrics/loss": avg_loss,
-            "metrics/time": epoch_time,
-        }
-        if moe_config.enable:
-            log_dict.update({
-                "norms/router": avg_router_norm,
-                "norms/expert": avg_expert_norm,
-            })
-        wandb.log(log_dict)
+                "epoch": epoch,
+                "norms/total": avg_total_norm,
+                "metrics/loss": avg_loss,
+                "metrics/time": epoch_time,
+            }
+            if moe_config.enable:
+                log_dict.update({
+                    "norms/router": avg_router_norm,
+                    "norms/expert": avg_expert_norm,
+                })
+            wandb.log(log_dict)
 
         if (epoch == config.n_epochs) or (epoch%config.vis_every_epoch == 0):
             model.eval()
