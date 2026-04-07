@@ -112,7 +112,7 @@ class DDPM:
 
             if self.enable_moe:
                 routing = outputs.moe_routing_info[0]
-                expert_probs = routing.expert_probs # [B*T, n_experts, expert_capacity], one capacity slot per (token, expert) pair
+                expert_probs = routing.routing_weights # [B*T, n_experts, expert_capacity], one capacity slot per (token, expert) pair
 
                 topk_indices = routing.topk_indices # [B, T, K]
                 B, T = topk_indices.shape[0],topk_indices.shape[1]

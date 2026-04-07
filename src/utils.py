@@ -12,9 +12,9 @@ from torchvision.utils import make_grid, save_image
 @dataclass
 class RoutingStats:
     topk_indices: torch.Tensor
-    expert_probs: torch.Tensor
+    routing_weights: torch.Tensor
     expert_cap_util: torch.Tensor
-    expert_mask: torch.Tensor
+    routing_mask: torch.Tensor
 
 @dataclass
 class MoEStats:
