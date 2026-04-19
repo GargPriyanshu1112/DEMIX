@@ -29,7 +29,7 @@ class MoEConfig:
     k: int = 2
     use_noisy_topk: bool = True
     min_expert_capacity: int = 4
-    capacity_factor: float = 3.0
+    capacity_factor: float = 2.0
     bias: bool = False
     dropout: float = 0.0
     placement: MoEPlacementConfig = field(default_factory=MoEPlacementConfig)

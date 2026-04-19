@@ -102,9 +102,9 @@ def torch_compile_ckpt_fix(state_dict):
             state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)
     return state_dict
 
-def plot_most_used_expert(experts_used_per_t, save_path=None, figsize=(14, 4)):
+def plot_most_used_expert(experts_used_per_t, save_name="top1-routing.png", save_dir=None, figsize=(14, 4)):
     T, n_experts = experts_used_per_t.shape
-    timesteps = np.arange(T) + 1
+    timesteps = np.arange(T, 0, -1)
     top1_expert_per_t = np.argmax(experts_used_per_t, axis=1)
 
     fig = plt.figure(figsize=figsize)
@@ -114,81 +114,78 @@ def plot_most_used_expert(experts_used_per_t, save_path=None, figsize=(14, 4)):
             continue
         x = timesteps[mask]
         y = [i+1] * len(x)
-        plt.scatter(x, y, label=f"Expert_{i+1}")
+        plt.scatter(x, y, label=f"E{i+1}")
 
-    plt.gca().invert_xaxis()
+    plt.xlim(T, 0)
     plt.xlabel("t")
 
     plt.ylabel("top-1 expert")
     plt.yticks(np.arange(1, n_experts + 1))
     plt.ylim(0.5, n_experts + 0.5)
 
-    plt.legend()
     plt.tight_layout()
+    if save_dir:
+        plt.savefig(f"{save_dir}/{save_name}", bbox_inches='tight')
 
-    if save_path:
-        plt.savefig(save_path, bbox_inches='tight')
-    return fig
-
-def plot_expert_usage_heatmap(routing_weights_per_t, save_path=None, figsize=(14, 4)):
-    n_experts = routing_weights_per_t.shape[1]
+def plot_expert_usage_heatmap(routing_weights_per_t, save_name="heatmap.png", save_dir=None, figsize=(14, 4)):
+    T, n_experts = routing_weights_per_t.shape
     normalized = routing_weights_per_t / (routing_weights_per_t.sum(axis=1, keepdims=True) + 1e-8)
 
     fig = plt.figure(figsize=figsize)
-    plt.imshow(normalized.T, aspect='auto', origin='upper', cmap='viridis')
+    plt.imshow(normalized.T, aspect='auto', origin='lower', cmap='viridis')
     plt.colorbar(label="Fraction of tokens")
 
-    plt.xlabel(f"Timestep (high→low noise)")
+    ax = plt.gca()
+    ticks = list(range(0, T, 100)) + [T-1]
+    labels = [str(max(T - t, 0)) for t in ticks]
+    ax.set_xticks(ticks)
+    ax.set_xticklabels(labels)
+
+    plt.xlabel("Timestep (t)  |  high noise → low noise")
     plt.ylabel("Expert")
     plt.yticks(range(n_experts), [f"E{i+1}" for i in range(n_experts)])
 
     plt.title("Expert Usage Heatmap (Inference)", fontsize=10)
-    plt.gca().invert_xaxis()
     plt.tight_layout()
 
-    if save_path:
-        plt.savefig(save_path, bbox_inches='tight', pad_inches=0.1)
-    return fig
+    if save_dir:
+        plt.savefig(f"{save_dir}/{save_name}", bbox_inches='tight', pad_inches=0.1)
 
-def plot_routing_entropy(routing_weights_per_t, save_path=None, figsize=(14, 4)):
-    """
-    Validates: At which denoising stage does specialization emerge?
-    """
+def plot_routing_perplexity(routing_weights_per_t, save_name="routing_perplexity.png", save_dir=None, figsize=(12, 4)):
     T, n_experts = routing_weights_per_t.shape
     normalized = routing_weights_per_t / (routing_weights_per_t.sum(axis=1, keepdims=True) + 1e-8)
     entropy_per_t = -np.sum(normalized * np.log(normalized + 1e-8), axis=1)
-    max_entropy = np.log(n_experts) # uniform routing
+    perplexity_per_t = np.exp(entropy_per_t)
 
     fig, ax = plt.subplots(figsize=figsize)
-    ax.plot(entropy_per_t[::-1], linewidth=2, color='steelblue', label="Routing entropy")
+    ax.plot(perplexity_per_t, linewidth=2, color='steelblue')
 
-    # Max entropy reference line
     ax.axhline(
-        y=max_entropy,
+        y=n_experts,
         color='red',
         linestyle='--',
         linewidth=1,
-        label=f"Max entropy = {max_entropy:.2f} (uniform routing)"
+        label=f"Uniform routing (PP={n_experts})"
+    )
+    ax.axhline(
+        y=1,
+        color='gray',
+        linestyle='--',
+        linewidth=1,
+        label="Complete collapse (PP=1)"
     )
 
-    # Shade regions: high noise (early), low noise (late)
-    ax.axvspan(T - T//3, T, alpha=0.08, color='red', label="High noise")
-    ax.axvspan(0, T - 2*T//3, alpha=0.08, color='green', label="Low noise")
+    ticks = list(range(0, T, 100)) + [T-1]
+    labels = [str(max(T - t, 0)) for t in ticks]
+    ax.set_xticks(ticks)
+    ax.set_xticklabels(labels)
 
-    ax.set_xlabel("Timestep (high → low noise)")
-    ax.set_ylabel("Routing Entropy")
-    ax.set_ylim(0, max_entropy * 1.1)
-    ax.invert_xaxis()
-
-    ax.set_title(
-        "Routing Entropy Across Denoising Stages\n"
-        "High = uniform routing  |  Low = specialized routing",
-        fontsize=10
-    )
-
-    ax.legend(fontsize=9)
+    ax.set_ylim(0, n_experts * 1.05)
+    ax.set_ylabel("Routing Perplexity", fontsize=10)
+    ax.set_xlabel("Timestep (high → low noise)", fontsize=10)
+    ax.set_title("Routing Perplexity Across Denoising Stages", fontsize=10)
+    ax.legend(fontsize=8)
     plt.tight_layout()
 
-    if save_path:
-        plt.savefig(save_path, bbox_inches='tight', pad_inches=0.1)
-    return fig
+    if save_dir:
+        plt.savefig(f"{save_dir}/{save_name}", bbox_inches='tight', pad_inches=0.1)

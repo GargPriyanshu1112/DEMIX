@@ -98,8 +98,8 @@ class DDPM:
             debug_ret = torch.zeros((debug_steps, n, self.img_chls, *self.img_size), dtype=torch.uint8, device="cpu")
 
         step_idx = 0
-        routing_weights_per_t = []
         experts_used_per_t = []
+        routing_weights_per_t = []
         for i in tqdm(reversed(range(self.scheduler.num_timesteps)), dynamic_ncols=True, desc="sampling", leave=False, total=self.scheduler.num_timesteps):
             t = torch.full((n,), fill_value=i, dtype=torch.long, device=self.device)
             with amp_ctx:
@@ -112,8 +112,6 @@ class DDPM:
 
             if self.enable_moe:
                 routing = outputs.moe_routing_info[0]
-                expert_probs = routing.routing_weights # [B*T, n_experts, expert_capacity], one capacity slot per (token, expert) pair
-
                 topk_indices = routing.topk_indices # [B, T, K]
                 B, T = topk_indices.shape[0],topk_indices.shape[1]
 
@@ -122,10 +120,9 @@ class DDPM:
                 one_hot = one_hot.sum(dim=(0, 1)) # [n_experts]
                 experts_used_per_t.append(one_hot)
 
-                token_exp_probs = expert_probs.sum(dim=2) # [B*T, n_experts]
-                token_exp_probs = token_exp_probs.reshape(B, T, self.n_experts) # [B, T, n_experts]
-                routing_weight = token_exp_probs.sum(dim=(0, 1)) # Total routing prob/weight assigned to an expert across all tokens
-                routing_weights_per_t.append(routing_weight)
+                topk_one_hot = F.one_hot(topk_indices, num_classes=self.n_experts) # [B, T, K, n_experts]
+                topk_counts = topk_one_hot.sum(dim=(0, 1, 2)) # [n_experts]
+                routing_weights_per_t.append(topk_counts)
 
             x = self.scheduler.sample_prev_timestep(t, x, pred_noise)
             if debug and (i%debug_stepsize == 0) and (step_idx < debug_steps):

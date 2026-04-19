@@ -25,7 +25,7 @@ from utils import (
     torch_compile_ckpt_fix,
     plot_most_used_expert,
     plot_expert_usage_heatmap,
-    plot_routing_entropy
+    plot_routing_perplexity
 )
 
 OmegaConf.register_new_resolver("now_ist", get_ist_time_now)
@@ -223,15 +223,18 @@ def main(config):
                 img = create_grid(imgs, n_row=config.dataset.n_classes, img_path=img_path).permute(1, 2, 0).numpy()
                 most_used_expert_per_t_fig = plot_most_used_expert(
                     experts_used_per_t,
-                    log_dir / f"{config.model_name}-{epoch:05d}_top1_expert.png"
+                    save_name=f"{config.model_name}-{epoch:05d}_top1_expert.png",
+                    save_dir=log_dir
                 )
                 heatmap_fig = plot_expert_usage_heatmap(
                     routing_weights_per_t,
-                    log_dir / f"{config.model_name}-{epoch:05d}_heatmap.png"
+                    save_name=f"{config.model_name}-{epoch:05d}_heatmap.png",
+                    save_dir=log_dir
                 )
-                routing_entropy_fig = plot_routing_entropy(
+                routing_entropy_fig = plot_routing_perplexity(
                     routing_weights_per_t,
-                    log_dir / f"{config.model_name}-{epoch:05d}_entropy.png"
+                    save_name=f"{config.model_name}-{epoch:05d}_entropy.png",
+                    save_dir=log_dir
                 )
                 logger.info(f"Saved sample images generated to {str(img_path)}")
                 if config.logging.wandb.enable and config.logging.wandb.log_imgs:
