@@ -126,6 +126,7 @@ def plot_most_used_expert(experts_used_per_t, save_name="top1-routing.png", save
     plt.tight_layout()
     if save_dir:
         plt.savefig(f"{save_dir}/{save_name}", bbox_inches='tight')
+    return fig
 
 def plot_expert_usage_heatmap(routing_weights_per_t, save_name="heatmap.png", save_dir=None, figsize=(14, 4)):
     T, n_experts = routing_weights_per_t.shape
@@ -150,6 +151,7 @@ def plot_expert_usage_heatmap(routing_weights_per_t, save_name="heatmap.png", sa
 
     if save_dir:
         plt.savefig(f"{save_dir}/{save_name}", bbox_inches='tight', pad_inches=0.1)
+    return fig
 
 def plot_routing_perplexity(routing_weights_per_t, save_name="routing_perplexity.png", save_dir=None, figsize=(12, 4)):
     T, n_experts = routing_weights_per_t.shape
@@ -189,3 +191,4 @@ def plot_routing_perplexity(routing_weights_per_t, save_name="routing_perplexity
 
     if save_dir:
         plt.savefig(f"{save_dir}/{save_name}", bbox_inches='tight', pad_inches=0.1)
+    return fig
