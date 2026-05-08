@@ -23,7 +23,6 @@ from utils import (
     get_ist_time_now,
     sample_lbls,
     torch_compile_ckpt_fix,
-    plot_most_used_expert,
     plot_expert_usage_heatmap,
     plot_routing_perplexity
 )
@@ -218,31 +217,27 @@ def main(config):
                 lbls = None
                 if config.ddpm.classifier_free_guidance.enable:
                     lbls = sample_lbls(config.dataset.n_classes, config.vis_n_samples, device)
-                imgs, experts_used_per_t, routing_weights_per_t, _ = ddpm.reverse(model, config.vis_n_samples, amp_ctx, lbls)
+                imgs, experts_avg_topk_rout_load_per_t, experts_avg_topk_assignment_per_t, _ = ddpm.reverse(
+                    model, config.vis_n_samples, amp_ctx, lbls
+                )
                 img_path = log_dir / f"{config.model_name}-{epoch:05d}.png"
                 img = create_grid(imgs, n_row=config.dataset.n_classes, img_path=img_path).permute(1, 2, 0).numpy()
-                most_used_expert_per_t_fig = plot_most_used_expert(
-                    experts_used_per_t,
-                    save_name=f"{config.model_name}-{epoch:05d}_top1_expert.png",
-                    save_dir=log_dir
-                )
                 heatmap_fig = plot_expert_usage_heatmap(
-                    routing_weights_per_t,
+                    experts_avg_topk_assignment_per_t,
                     save_name=f"{config.model_name}-{epoch:05d}_heatmap.png",
                     save_dir=log_dir
                 )
-                routing_entropy_fig = plot_routing_perplexity(
-                    routing_weights_per_t,
-                    save_name=f"{config.model_name}-{epoch:05d}_entropy.png",
+                routing_perplexity_fig = plot_routing_perplexity(
+                    experts_avg_topk_rout_load_per_t,
+                    save_name=f"{config.model_name}-{epoch:05d}_perplexity.png",
                     save_dir=log_dir
                 )
                 logger.info(f"Saved sample images generated to {str(img_path)}")
                 if config.logging.wandb.enable and config.logging.wandb.log_imgs:
                     wandb.log({
                         "samples": wandb.Image(img),
-                        "most_used_expert": wandb.Image(most_used_expert_per_t_fig),
                         "expert_usage_heatmap": wandb.Image(heatmap_fig),
-                        "routing_entropy": wandb.Image(routing_entropy_fig),
+                        "routing_perplexity": wandb.Image(routing_perplexity_fig),
                     }, step=epoch)
         model.train()
 

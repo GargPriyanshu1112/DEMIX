@@ -98,8 +98,8 @@ class DDPM:
             debug_ret = torch.zeros((debug_steps, n, self.img_chls, *self.img_size), dtype=torch.uint8, device="cpu")
 
         step_idx = 0
-        experts_used_per_t = []
-        routing_weights_per_t = []
+        experts_avg_topk_rout_load_per_t = []
+        experts_avg_topk_assignment_per_t = []
         for i in tqdm(reversed(range(self.scheduler.num_timesteps)), dynamic_ncols=True, desc="sampling", leave=False, total=self.scheduler.num_timesteps):
             t = torch.full((n,), fill_value=i, dtype=torch.long, device=self.device)
             with amp_ctx:
@@ -113,16 +113,14 @@ class DDPM:
             if self.enable_moe:
                 routing = outputs.moe_routing_info[0]
                 topk_indices = routing.topk_indices # [B, T, K]
-                B, T = topk_indices.shape[0],topk_indices.shape[1]
+                routing_weights = routing.routing_weights # [B*T, n_experts, expert_capacity]
 
-                top1 = topk_indices[:, :, 0] # [B, T]
-                one_hot = F.one_hot(top1, num_classes=self.n_experts) # [B, T, n_experts]
-                one_hot = one_hot.sum(dim=(0, 1)) # [n_experts]
-                experts_used_per_t.append(one_hot)
+                exp_avg_topk_rout_load = routing_weights.sum(dim=2).mean(dim=0) # [n_experts]
+                experts_avg_topk_rout_load_per_t.append(exp_avg_topk_rout_load)
 
                 topk_one_hot = F.one_hot(topk_indices, num_classes=self.n_experts) # [B, T, K, n_experts]
-                topk_counts = topk_one_hot.sum(dim=(0, 1, 2)) # [n_experts]
-                routing_weights_per_t.append(topk_counts)
+                exp_avg_topk_assignment = topk_one_hot.sum(dim=2).float().mean(dim=(0, 1)) # [n_experts]
+                experts_avg_topk_assignment_per_t.append(exp_avg_topk_assignment)
 
             x = self.scheduler.sample_prev_timestep(t, x, pred_noise)
             if debug and (i%debug_stepsize == 0) and (step_idx < debug_steps):
@@ -131,9 +129,9 @@ class DDPM:
                 step_idx += 1
 
         if self.enable_moe:
-            routing_weights_per_t = torch.stack(routing_weights_per_t, dim=0).detach().cpu().numpy() # [num_timesteps, n_experts]
-            experts_used_per_t = torch.stack(experts_used_per_t, dim=0).detach().cpu().numpy() # [num_timesteps, n_experts]
+            experts_avg_topk_rout_load_per_t = torch.stack(experts_avg_topk_rout_load_per_t, dim=0).detach().cpu().numpy() # [num_timesteps, n_experts]
+            experts_avg_topk_assignment_per_t = torch.stack(experts_avg_topk_assignment_per_t, dim=0).detach().cpu().numpy() # [num_timesteps, n_experts]
 
         x = x.clamp(-1., 1.)
         x = ((x + 1) * 127.5).to("cpu").to(torch.uint8)
-        return x, experts_used_per_t, routing_weights_per_t, debug_ret
+        return x, experts_avg_topk_rout_load_per_t, experts_avg_topk_assignment_per_t, debug_ret

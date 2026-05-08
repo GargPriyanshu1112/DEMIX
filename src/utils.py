@@ -128,13 +128,13 @@ def plot_most_used_expert(experts_used_per_t, save_name="top1-routing.png", save
         plt.savefig(f"{save_dir}/{save_name}", bbox_inches='tight')
     return fig
 
-def plot_expert_usage_heatmap(routing_weights_per_t, save_name="heatmap.png", save_dir=None, figsize=(14, 4)):
-    T, n_experts = routing_weights_per_t.shape
-    normalized = routing_weights_per_t / (routing_weights_per_t.sum(axis=1, keepdims=True) + 1e-8)
+def plot_expert_usage_heatmap(experts_avg_topk_assignment_per_t, save_name="heatmap.png", save_dir=None, figsize=(14, 4)):
+    T, n_experts = experts_avg_topk_assignment_per_t.shape
+    experts_avg_topk_assignment_per_t_norm = experts_avg_topk_assignment_per_t / (experts_avg_topk_assignment_per_t.sum(axis=1, keepdims=True) + 1e-8)
 
     fig = plt.figure(figsize=figsize)
-    plt.imshow(normalized.T, aspect='auto', origin='lower', cmap='viridis')
-    plt.colorbar(label="Fraction of tokens")
+    plt.imshow(experts_avg_topk_assignment_per_t_norm.T, aspect='auto', origin='lower', cmap='viridis')
+    plt.colorbar(label="Fraction of top-k assignments")
 
     ax = plt.gca()
     ticks = list(range(0, T, 100)) + [T-1]
@@ -153,10 +153,10 @@ def plot_expert_usage_heatmap(routing_weights_per_t, save_name="heatmap.png", sa
         plt.savefig(f"{save_dir}/{save_name}", bbox_inches='tight', pad_inches=0.1)
     return fig
 
-def plot_routing_perplexity(routing_weights_per_t, save_name="routing_perplexity.png", save_dir=None, figsize=(12, 4)):
-    T, n_experts = routing_weights_per_t.shape
-    normalized = routing_weights_per_t / (routing_weights_per_t.sum(axis=1, keepdims=True) + 1e-8)
-    entropy_per_t = -np.sum(normalized * np.log(normalized + 1e-8), axis=1)
+def plot_routing_perplexity(experts_avg_topk_rout_load_per_t, save_name="routing_perplexity.png", save_dir=None, figsize=(12, 4)):
+    T, n_experts = experts_avg_topk_rout_load_per_t.shape
+    experts_avg_topk_rout_load_per_t_norm = experts_avg_topk_rout_load_per_t / (experts_avg_topk_rout_load_per_t.sum(axis=1, keepdims=True) + 1e-8)
+    entropy_per_t = -np.sum(experts_avg_topk_rout_load_per_t_norm * np.log(experts_avg_topk_rout_load_per_t_norm + 1e-8), axis=1)
     perplexity_per_t = np.exp(entropy_per_t)
 
     fig, ax = plt.subplots(figsize=figsize)
