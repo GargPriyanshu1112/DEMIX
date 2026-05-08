@@ -72,7 +72,7 @@ def main(config):
         start_epoch = ckpt['epoch'] + 1
 
     if config.torch_compile:
-        model = torch.compile(model)
+        model = torch.compile(model, backend="aot_eager")
 
     ddpm = DDPM(
         config,
@@ -132,11 +132,29 @@ def main(config):
             optimizer.zero_grad(set_to_none=True)
 
             with amp_ctx:
+                # ======= Adaptive load balancing (auxillary) weight =======
+                # routing = outputs.moe_routing_info[0]
+                # p = routing.routing_weights.sum(dim=2).mean(dim=0) # average routing probabiity per expert
+                # p = p + 1e-9
+                # p = p / p.sum()
+
+                # current_entropy = -(p * torch.log(p)).sum()
+                # max_entropy = torch.log(torch.tensor(p.numel(), device=p.device)) # max. possible uncertainty (when perfectly uniform routing)
+
+                # entropy_ratio = (current_entropy / max_entropy).detach()
+                # lambda_aux = moe_config.lambda_aux * (1 - entropy_ratio)
+                # lambda_aux = torch.clamp(lambda_aux, min=1e-6)
+                # ==========================================================
+
+                decay_steps = epoch // 20
+                lambda_aux = max(moe_config.lambda_aux * (0.5 ** decay_steps), 1e-4)
+
                 outputs = model(x_t, t, lbls)
                 mse_term = F.mse_loss(outputs.pred_noise, noise)
-                aux_term = moe_config.lambda_aux * outputs.aux_loss
+                aux_term = lambda_aux * outputs.aux_loss
                 z_term   = moe_config.lambda_z * outputs.z_loss
-                total_loss = mse_term + aux_term + z_term
+                scale_reg = outputs.scale_reg # scale regularization term
+                total_loss = mse_term + aux_term + z_term + scale_reg
 
             total_loss.backward()
 
@@ -162,6 +180,7 @@ def main(config):
                 'mse': f"{mse_term.item():.4f}",
                 'scaled_aux': f"{aux_term.item():.4f}",
                 'scaled_z': f"{z_term.item():.4f}",
+                'scale_reg': f"{scale_reg.item():.4f}",
                 'total_norm': f"{total_norm.item():.4f}",
             }
             if moe_config.enable:

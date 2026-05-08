@@ -185,7 +185,7 @@ class DiffusionUNet(nn.Module):
 
     def forward(self, x, t, y=None):
         moe_routing_info = []
-        aux_loss, z_loss = x.new_zeros(()), x.new_zeros(())
+        aux_loss, z_loss, scale_reg = x.new_zeros(()), x.new_zeros(()), x.new_zeros(())
 
         t_emb = self.t_embed(
             get_timestep_embedding(t, self.cfg.init_c)
@@ -201,6 +201,7 @@ class DiffusionUNet(nn.Module):
                 h, moe_stats = layer(h, t_emb) if isinstance(layer, ResidualBlock) else layer(h)
                 aux_loss += moe_stats.aux_loss
                 z_loss += moe_stats.z_loss
+                scale_reg += moe_stats.scale_reg
                 if moe_stats.routing is not None:
                     moe_routing_info.append(moe_stats.routing)
             skips.append(h)
@@ -209,6 +210,7 @@ class DiffusionUNet(nn.Module):
             h, moe_stats = layer(h, t_emb) if isinstance(layer, ResidualBlock) else layer(h)
             aux_loss += moe_stats.aux_loss
             z_loss += moe_stats.z_loss
+            scale_reg += moe_stats.scale_reg
             if moe_stats.routing is not None:
                 moe_routing_info.append(moe_stats.routing)
 
@@ -221,12 +223,13 @@ class DiffusionUNet(nn.Module):
                 h, moe_stats = layer(h, t_emb) if isinstance(layer, ResidualBlock) else layer(h)
                 aux_loss += moe_stats.aux_loss
                 z_loss += moe_stats.z_loss
+                scale_reg += moe_stats.scale_reg
                 if moe_stats.routing is not None:
                     moe_routing_info.append(moe_stats.routing)
 
         output = self.conv_out(F.silu(self.out_norm(h)))
         return Outputs(
-            pred_noise=output, aux_loss=aux_loss, z_loss=z_loss, moe_routing_info=moe_routing_info
+            pred_noise=output, aux_loss=aux_loss, z_loss=z_loss, scale_reg=scale_reg, moe_routing_info=moe_routing_info
         )
 
     def use_moe(self, block_type, resolution, block_idx):

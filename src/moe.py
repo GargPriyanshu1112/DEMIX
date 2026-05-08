@@ -251,11 +251,16 @@ class MoELayer(nn.Module):
 
         outputs = residual + (self.residual_scale * outputs)
 
+        # Scale regularization term
+        scale_reg = 1e-3 * (self.residual_scale - 1.0).pow(2).squeeze()
+        print(scale_reg)
+
         return (
             outputs,
             MoEStats(
                 aux_loss=aux_loss,
                 z_loss=z_loss,
+                scale_reg=scale_reg,
                 routing=routing_stats
             )
         )

@@ -20,18 +20,20 @@ class RoutingStats:
 class MoEStats:
     aux_loss: torch.Tensor
     z_loss: torch.Tensor
+    scale_reg: torch.Tensor
     routing: Optional[RoutingStats] = None
 
     @staticmethod
     def empty_like(x: torch.Tensor):
         zero = x.new_zeros(())
-        return MoEStats(aux_loss=zero, z_loss=zero, routing=None)
+        return MoEStats(aux_loss=zero, z_loss=zero, scale_reg=zero, routing=None)
 
 @dataclass
 class Outputs:
     pred_noise: torch.Tensor
     aux_loss: torch.Tensor
     z_loss: torch.Tensor
+    scale_reg: torch.Tensor
     moe_routing_info: List[torch.Tensor] = field(default_factory=list)
 
 def get_device(device_type):
